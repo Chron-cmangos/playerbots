@@ -132,16 +132,6 @@ public:
 
 typedef std::map<BotEquipKey, RandomItemList> BotEquipCache;
 
-struct RandomItemCacheStats
-{
-    uint64 randomItems = 0;
-    uint64 equipmentItems = 0;
-    uint64 itemInfoEntries = 0;
-    uint64 consumableItems = 0;
-    uint64 tradeItems = 0;
-    uint64 enchantItems = 0;
-};
-
 class RandomItemMgr
 {
     public:
@@ -199,7 +189,6 @@ class RandomItemMgr
         std::string GetPlayerSpecName(Player* player);
         uint32 GetPlayerSpecId(Player* player);
         std::vector<uint32> GetGlyphs(uint8 playerClass) { return glyphCache.at(playerClass); }
-        RandomItemCacheStats GetCacheStats() const;
     private:
         void BuildRandomItemCache();
         void BuildEquipCache();

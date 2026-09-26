@@ -797,7 +797,6 @@ AiPlayerbot.ReactDelay = 100
 
 # Inactivity delay
 AiPlayerbot.PassiveDelay = 10000
-AiPlayerbot.ValueCacheCleanupInterval = 60000
 
 # Minimum delay between repeating actions (chat messages, emotes etc)
 AiPlayerbot.RepeatDelay = 5000
@@ -893,10 +892,6 @@ AiPlayerbot.FleeingEnabled = 1
 # Intervals
 #AiPlayerbot.RandomBotUpdateInterval = 1000
 #AiPlayerbot.RandomBotsMaxLoginsPerInterval = 10
-# Maximum pending Character DB operations/results created by bot login holders.
-# This bounds startup memory while real-player DB work continues to use its
-# separate priority lane. Zero disables the bound.
-AiPlayerbot.RandomBotLoginDbQueueLimit = 256
 AiPlayerbot.RandomBotCountChangeMinInterval = 1800
 AiPlayerbot.RandomBotCountChangeMaxInterval = 7200
 #AiPlayerbot.MinRandomBotInWorldTime = 3600

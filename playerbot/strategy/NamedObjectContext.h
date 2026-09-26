@@ -5,7 +5,6 @@
 #include <set>
 #include <list>
 #include <map>
-#include <mutex>
 
 namespace ai
 {
@@ -201,24 +200,10 @@ namespace ai
 
         T* Create(std::string name, PlayerbotAI* ai)
         {
-            // A bot can briefly be visible to two map/update paths while it is
-            // logging in or changing maps. Shared contexts are also queried by
-            // several map workers. Serialise the entire find/create/insert
-            // transaction: concurrent std::map insertion corrupts the RB tree.
-            std::lock_guard<std::recursive_mutex> lock(createdMutex);
-            auto const existing = created.find(name);
-            if (existing == created.end())
-            {
-                // Unsupported qualified names are common probes. Do not cache
-                // nullptr entries forever; those maps otherwise grow as bots
-                // encounter new GUID/item/spell qualifiers.
-                T* object = NamedObjectFactory<T>::Create(name, ai);
-                if (object)
-                    created.emplace(std::move(name), object);
-                return object;
-            }
+            if (created.find(name) == created.end())
+                return created[name] = NamedObjectFactory<T>::Create(name, ai);
 
-            return existing->second;
+            return created[name];
         }
 
         virtual ~NamedObjectContext()
@@ -228,7 +213,6 @@ namespace ai
 
         void Clear()
         {
-            std::lock_guard<std::recursive_mutex> lock(createdMutex);
             for (typename std::map<std::string, T*>::iterator i = created.begin(); i != created.end(); i++)
             {
                 if (i->second)
@@ -240,18 +224,15 @@ namespace ai
 
         void Erase(const std::string& name)
         {
-            std::lock_guard<std::recursive_mutex> lock(createdMutex);
-            typename std::map<std::string, T*>::iterator existing = created.find(name);
-            if (existing != created.end())
+            if (created.find(name) != created.end())
             {
-                delete existing->second;
-                created.erase(existing);
+                delete created[name];
+                created.erase(name);
             }
         }
 
         void Update()
         {
-            std::lock_guard<std::recursive_mutex> lock(createdMutex);
             for (typename std::map<std::string, T*>::iterator i = created.begin(); i != created.end(); i++)
             {
                 if (i->second)
@@ -261,7 +242,6 @@ namespace ai
 
         void Reset()
         {
-            std::lock_guard<std::recursive_mutex> lock(createdMutex);
             for (typename std::map<std::string, T*>::iterator i = created.begin(); i != created.end(); i++)
             {
                 if (i->second)
@@ -272,30 +252,18 @@ namespace ai
         bool IsShared() { return shared; }
         bool IsSupportsSiblings() { return supportsSiblings; }
 
-        bool IsCreated(const std::string& name)
-        {
-            std::lock_guard<std::recursive_mutex> lock(createdMutex);
-            return created.find(name) != created.end();
-        }
+        bool IsCreated(const std::string& name) { return created.find(name) != created.end(); }
 
         std::set<std::string> GetCreated()
         {
-            std::lock_guard<std::recursive_mutex> lock(createdMutex);
             std::set<std::string> keys;
             for (typename std::map<std::string, T*>::iterator it = created.begin(); it != created.end(); it++)
                 keys.insert(it->first);
             return keys;
         }
 
-        size_t GetCreatedCount() const
-        {
-            std::lock_guard<std::recursive_mutex> lock(createdMutex);
-            return created.size();
-        }
-
     protected:
         std::map<std::string, T*> created;
-        mutable std::recursive_mutex createdMutex;
         bool shared;
         bool supportsSiblings;
     };
@@ -396,14 +364,6 @@ namespace ai
                     result.insert(*j);
             }
             return result;
-        }
-
-        size_t GetCreatedCount() const
-        {
-            size_t count = 0;
-            for (typename std::list<NamedObjectContext<T>*>::const_iterator i = contexts.begin(); i != contexts.end(); ++i)
-                count += (*i)->GetCreatedCount();
-            return count;
         }
 
         void Erase(const std::string& name)

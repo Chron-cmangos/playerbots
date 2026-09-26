@@ -416,15 +416,6 @@ namespace ai
 	class TravelMgr
 	{
 	public:
-		struct CacheStats
-        {
-            uint64 destinations = 0;
-            uint64 points = 0;
-            uint64 fishPoints = 0;
-            uint64 areaLevels = 0;
-            uint64 badMmaps = 0;
-            uint64 mapTransfers = 0;
-        };
 		TravelMgr() {};
         ~TravelMgr() { Clear(); };
 		void LoadQuestTravelTable();
@@ -461,7 +452,6 @@ namespace ai
 
 		int32 GetAreaLevel(uint32 area_id);
 		void LoadAreaLevels();
-		CacheStats GetCacheStats() const;
 	private:
 		void Clear();
 		void SetMobAvoidAreaMap(uint32 mapId);

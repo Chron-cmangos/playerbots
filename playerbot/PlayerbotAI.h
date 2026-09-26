@@ -406,7 +406,7 @@ public:
 	PlayerbotAI(Player* bot);
 	virtual ~PlayerbotAI();
 
-    virtual void UpdateAI(uint32 elapsed, bool minimal = false, bool delayAlreadyAdvanced = false);
+    virtual void UpdateAI(uint32 elapsed, bool minimal = false);
 
     void HandleCommands();
 private:
@@ -774,9 +774,6 @@ protected:
     std::queue<ChatCommandHolder> chatCommands;
     std::queue<ChatQueuedReply> chatReplies;
     std::mutex chatRepliesMutex;
-    // A login/map transition can expose the same bot to two update paths for
-    // a short window. Never execute its mutable AI context concurrently.
-    std::mutex updateExecutionMutex;
     PacketHandlingHelper botOutgoingPacketHandlers;
     PacketHandlingHelper masterIncomingPacketHandlers;
     PacketHandlingHelper masterOutgoingPacketHandlers;
@@ -795,7 +792,6 @@ protected:
     uint32 jumpTime;
     bool fallAfterJump;
     uint32 faceTargetUpdateDelay;
-    uint32 lastValueCacheCleanupMs = 0;
     bool isPlayerFriend = false;
     bool isMovingToTransport = false;
     bool shouldLogOut = false;
