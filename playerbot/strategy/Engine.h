@@ -10,6 +10,9 @@
 #include "Strategy.h"
 #include "playerbot/BotState.h"
 
+#include <atomic>
+#include <unordered_map>
+
 namespace ai
 {
     class ActionExecutionListener
@@ -81,6 +84,12 @@ namespace ai
 		void PrintStrategies(Player* requester, const std::string& engineType);
         std::string GetLastAction() { return lastAction; }
         const Action* GetLastExecutedAction() const { return lastExecutedAction; }
+        static uint64 GetSuppressedImpossibleActions();
+        static uint64 GetSuppressedFailedActions();
+        static uint64 GetActionFailureCacheEntries();
+        static uint64 GetActionFailureCachePeakEntries();
+        static uint64 GetExpiredActionFailureEntries();
+        static uint64 GetEvictedActionFailureEntries();
 
     public:
 	    virtual bool DoNextAction(Unit*, int depth, bool minimal, bool isStunned);
@@ -118,6 +127,20 @@ namespace ai
     private:
         void LogAction(const char* format, ...);
         void LogValues();
+        std::string GetFailureKey(Action* action, const Event& event, ActionResult reason) const;
+        bool IsFailureBackedOff(Action* action, const Event& event, ActionResult reason) const;
+        void RecordFailure(Action* action, const Event& event, ActionResult reason);
+        void ClearFailures(Action* action, const Event& event);
+        void PruneActionFailures(uint32 now, bool enforceLimit = false);
+        void ClearActionFailures();
+        static void UpdateActionFailureCachePeak(uint64 value);
+
+        struct FailureState
+        {
+            uint32 failures = 0;
+            uint32 retryAfter = 0;
+            uint32 lastFailure = 0;
+        };
 
     protected:
 	    Queue queue;
@@ -130,6 +153,14 @@ namespace ai
         ActionExecutionListeners actionExecutionListeners;
         BotState state;
         Action* lastExecutedAction;
+        std::unordered_map<std::string, FailureState> actionFailures;
+        uint32 lastActionFailurePrune = 0;
+        static std::atomic<uint64> suppressedImpossibleActions;
+        static std::atomic<uint64> suppressedFailedActions;
+        static std::atomic<uint64> actionFailureCacheEntries;
+        static std::atomic<uint64> actionFailureCachePeakEntries;
+        static std::atomic<uint64> expiredActionFailureEntries;
+        static std::atomic<uint64> evictedActionFailureEntries;
 
         // External (packet) triggers whose event has been queued but not yet handed to its action,
         // keyed by trigger name (= the event source). They are exempt from the end-of-tick trigger

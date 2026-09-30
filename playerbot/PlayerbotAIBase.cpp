@@ -29,6 +29,25 @@ void PlayerbotAIBase::UpdateAI(uint32 elapsed)
     YieldAIInternalThread();
 }
 
+bool PlayerbotAIBase::AdvanceMinimalUpdateDelay(uint32 elapsed)
+{
+    if (aiInternalUpdateDelay > elapsed)
+    {
+        aiInternalUpdateDelay -= elapsed;
+        return false;
+    }
+
+    aiInternalUpdateDelay = 0;
+    return true;
+}
+
+void PlayerbotAIBase::ScheduleNextMinimalUpdate(uint32 salt, uint32 jitterMs)
+{
+    uint32 const baseDelay = std::max<uint32>(sPlayerbotAIConfig.passiveDelay, sPlayerbotAIConfig.reactDelay * 10);
+    uint32 const jitter = jitterMs ? ((salt * 2654435761u) % (jitterMs + 1)) : 0;
+    aiInternalUpdateDelay = std::max<uint32>(aiInternalUpdateDelay, baseDelay + jitter);
+}
+
 void PlayerbotAIBase::SetAIInternalUpdateDelay(const uint32 delay)
 {
     if (aiInternalUpdateDelay < delay)
@@ -51,7 +70,7 @@ void PlayerbotAIBase::IncreaseAIInternalUpdateDelay(uint32 delay)
 void PlayerbotAIBase::YieldAIInternalThread(bool minimal)
 {
     if (aiInternalUpdateDelay < sPlayerbotAIConfig.reactDelay)
-        aiInternalUpdateDelay = minimal ? sPlayerbotAIConfig.reactDelay * 10 : sPlayerbotAIConfig.reactDelay;
+        aiInternalUpdateDelay = minimal ? std::max<uint32>(sPlayerbotAIConfig.passiveDelay, sPlayerbotAIConfig.reactDelay * 10) : sPlayerbotAIConfig.reactDelay;
 }
 
 bool PlayerbotAIBase::IsActive() const
