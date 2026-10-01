@@ -848,6 +848,9 @@ AiPlayerbot.GlobalCooldown = 1500
 # Delay between two bot actions (default 100)
 AiPlayerbot.ReactDelay = 500
 
+# Backoff for an unchanged failed navigation request (milliseconds)
+AiPlayerbot.PathFailureRetryMs = 3000
+
 # Inactivity delay
 AiPlayerbot.PassiveDelay = 10000
 AiPlayerbot.ValueCacheCleanupInterval = 60000

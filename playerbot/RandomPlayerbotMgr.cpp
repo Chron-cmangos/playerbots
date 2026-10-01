@@ -653,6 +653,13 @@ void RandomPlayerbotMgr::UpdateAIInternal(uint32 elapsed, bool minimal)
     if (!sPlayerbotAIConfig.randomBotAutologin || !sPlayerbotAIConfig.enabled)
         return;
 
+#if PLATFORM == PLATFORM_WINDOWS
+    PROCESS_MEMORY_COUNTERS_EX currentMemory = {};
+    currentMemory.cb = sizeof(currentMemory);
+    if (GetProcessMemoryInfo(GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&currentMemory), sizeof(currentMemory)))
+        lastPrivateBytes = currentMemory.PrivateUsage;
+#endif
+
 #ifdef GenerateBotTests
     if (sPlayerbotAIConfig.startupRunTestsPending)
     {
@@ -753,6 +760,64 @@ void RandomPlayerbotMgr::UpdateAIInternal(uint32 elapsed, bool minimal)
     }
 
     uint32 maxLogins = sPlayerbotAIConfig.randomBotsMaxLoginsPerInterval;
+
+    // Admission control sheds only new background logins. Existing bots, real
+    // players, groups, combat and instances remain untouched.
+    const uint32 privateMb = static_cast<uint32>(lastPrivateBytes / (1024u * 1024u));
+    const uint32 memorySoftMb = sWorld.getConfig(CONFIG_UINT32_ADAPTIVE_LOAD_MEMORY_SOFT_MB);
+    const uint32 memoryHardMb = sWorld.getConfig(CONFIG_UINT32_ADAPTIVE_LOAD_MEMORY_HARD_MB);
+    uint32 memoryRecoverMb = sWorld.getConfig(CONFIG_UINT32_ADAPTIVE_LOAD_MEMORY_RECOVER_MB);
+    if (memoryHardMb && (!memoryRecoverMb || memoryRecoverMb >= memoryHardMb))
+        memoryRecoverMb = memorySoftMb && memorySoftMb < memoryHardMb ? memorySoftMb : memoryHardMb * 9 / 10;
+
+    if (memoryHardMb && privateMb >= memoryHardMb)
+        memoryAdmissionPaused = true;
+    else if (memoryAdmissionPaused && privateMb <= memoryRecoverMb)
+        memoryAdmissionPaused = false;
+
+    const time_t memoryNow = time(nullptr);
+    if (memorySoftMb && privateMb >= memorySoftMb &&
+        (!memoryMaintenanceTimer || memoryNow >= memoryMaintenanceTimer + 60))
+    {
+        memoryMaintenanceTimer = memoryNow;
+        uint64 released = 0;
+        ForEachPlayerbot([&](Player* activeBot)
+        {
+            if (activeBot && activeBot->GetPlayerbotAI() && activeBot->GetPlayerbotAI()->GetAiObjectContext())
+                released += activeBot->GetPlayerbotAI()->GetAiObjectContext()->ClearExpiredValues();
+        });
+        const uint64 eventsReleased = PruneExpiredEventCache(memoryNow);
+        sLog.outPerformance("BOT_MEMORY_MAINTENANCE private_mb=%u soft_mb=%u hard_mb=%u values_released=%llu events_released=%llu admission_paused=%u",
+            privateMb, memorySoftMb, memoryHardMb, static_cast<unsigned long long>(released),
+            static_cast<unsigned long long>(eventsReleased), memoryAdmissionPaused ? 1 : 0);
+    }
+
+    const uint32 averageWorldDiff = sWorld.GetAverageDiff();
+    const uint32 slowWorldDiff = sWorld.getConfig(CONFIG_UINT32_ADAPTIVE_LOAD_SLOW_WORLD_MS);
+    const uint32 recoverWorldDiff = sWorld.getConfig(CONFIG_UINT32_ADAPTIVE_LOAD_RECOVER_WORLD_MS);
+    const char* admissionReason = nullptr;
+    if (memoryAdmissionPaused)
+    {
+        maxLogins = 0;
+        admissionReason = "memory_hard";
+    }
+    else if (averageWorldDiff >= slowWorldDiff)
+    {
+        maxLogins = 0;
+        admissionReason = "world_slow";
+    }
+    else if (averageWorldDiff > recoverWorldDiff)
+    {
+        maxLogins = std::max<uint32>(1, maxLogins / 2);
+        admissionReason = "world_recovering";
+    }
+
+    if (admissionReason && (!admissionStateLogTimer || memoryNow >= admissionStateLogTimer + 30))
+    {
+        admissionStateLogTimer = memoryNow;
+        sLog.outPerformance("BOT_ADMISSION_CONTROL reason=%s private_mb=%u world_avg_ms=%u logins_allowed=%u bots_online=%u target=%u",
+            admissionReason, privateMb, averageWorldDiff, maxLogins, onlineBotCount, maxAllowedBotCount);
+    }
 
     // Do not materialize thousands of complete login holders faster than the
     // world thread can consume them. Each holder owns several query results,
@@ -3408,6 +3473,41 @@ void RandomPlayerbotMgr::EnsureEventCacheLoaded(uint32 bot)
             eventCache[bot][eventName] = std::move(e);
         } while (results->NextRow());
     }
+}
+
+uint64 RandomPlayerbotMgr::PruneExpiredEventCache(time_t now)
+{
+    static const std::set<std::string> persistentEvents = {
+        "specNo", "specLink", "init", "current_time", "always", "selfbot"
+    };
+
+    uint64 released = 0;
+    for (auto botEvents = eventCache.begin(); botEvents != eventCache.end();)
+    {
+        auto& events = botEvents->second;
+        for (auto event = events.begin(); event != events.end();)
+        {
+            const CachedEvent& value = event->second;
+            const bool expired = persistentEvents.find(event->first) == persistentEvents.end() &&
+                value.validIn && now >= value.lastChangeTime &&
+                static_cast<uint64>(now - value.lastChangeTime) >= value.validIn;
+            if (expired)
+            {
+                event = events.erase(event);
+                ++released;
+            }
+            else
+                ++event;
+        }
+
+        if (events.empty())
+            botEvents = eventCache.erase(botEvents);
+        else
+            ++botEvents;
+    }
+
+    expiredEventsReleased += released;
+    return released;
 }
 
 uint32 RandomPlayerbotMgr::GetEventValue(uint32 bot, const std::string& event)
