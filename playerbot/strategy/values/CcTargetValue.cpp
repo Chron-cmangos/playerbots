@@ -78,7 +78,7 @@ public:
                     minDistance = distance;
             }
 
-            if ((!result && !creature->IsPlayer()) || minDistance > maxDistance)
+            if (!result || minDistance > maxDistance)
             {
                 result = creature;
                 maxDistance = minDistance;

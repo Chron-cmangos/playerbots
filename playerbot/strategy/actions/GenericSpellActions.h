@@ -18,6 +18,8 @@ namespace ai
         bool ShouldReactionInterruptCast() const override { return true; }
 
         bool HasReachAction() { return !GetReachActionName().empty(); }
+        bool HasMovementEffect();
+        uint32 GetDecisionSpellId() { RefreshSpellId(); return spellId; }
         
     protected:
         const uint32& GetSpellID() const { return spellId; }
