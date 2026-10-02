@@ -39,6 +39,7 @@ PullStrategy::PullStrategy(PlayerbotAI* ai, std::string pullAction, std::string 
 
 std::string PullStrategy::GetPullActionName() const
 {
+    if (bodyPull) return "melee";
     std::string modPullActionName = pullActionName;
 
     // Select the faerie fire based on druid strategy
@@ -105,6 +106,7 @@ std::string PullStrategy::GetSpellName() const
 
 float PullStrategy::GetRange() const
 {
+    if (bodyPull) return CONTACT_DISTANCE;
     float range;
 
     // Try to get the pull action range
@@ -123,6 +125,7 @@ float PullStrategy::GetRange() const
 
 std::string PullStrategy::GetPreActionName() const
 {
+    if (bodyPull) return "";
     std::string modPullActionName = preActionName;
 
     // Select the faerie fire based on druid strategy
@@ -144,7 +147,11 @@ void PullStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     triggers.push_back(new TriggerNode(
         "pull start",
-        NextAction::array(0, new NextAction("pull start", ACTION_MOVE), new NextAction("pull action", ACTION_MOVE), NULL)));
+        NextAction::array(0, new NextAction("pull start", ACTION_MOVE), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "pull action",
+        NextAction::array(0, new NextAction("pull action", ACTION_MOVE), NULL)));
 
     triggers.push_back(new TriggerNode(
         "pull end",
@@ -215,9 +222,25 @@ void PullStrategy::OnPullStarted()
     pendingToStart = false;
 }
 
+void PullStrategy::OnPullActionIssued()
+{
+    pendingToStart = false;
+    pullActionTime = time(nullptr);
+}
+
 void PullStrategy::OnPullEnded()
 {
+    // Reset/cancel paths must restore the original pet setting too.
+    if (petReactStateSaved)
+        if (Pet* pet = ai->GetBot()->GetPet())
+            if (UnitAI* petAI = static_cast<Creature*>(pet)->AI())
+                petAI->SetReactState(petReactState);
+    pendingToStart = false;
     pullStartTime = 0;
+    pullActionTime = 0;
+    petReactStateSaved = false;
+    requesterGuid.Clear();
+    bodyPull = false;
     SetTarget(nullptr);
 }
 
@@ -228,6 +251,7 @@ void PullStrategy::RequestPull(Unit* target, bool resetTime)
     if(resetTime)
     {
         pullStartTime = time(0);
+        pullActionTime = 0;
     }
 }
 

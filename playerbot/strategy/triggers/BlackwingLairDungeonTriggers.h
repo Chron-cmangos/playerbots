@@ -1,9 +1,64 @@
 #pragma once
 #include "DungeonTriggers.h"
 #include "GenericTriggers.h"
+#include "playerbot/strategy/actions/EncounterSpellPolicy.h"
+#include "playerbot/strategy/actions/BlackwingLairDungeonActions.h"
 
 namespace ai
 {
+    class RazorgoreOrbTrigger : public Trigger
+    {
+    public:
+        RazorgoreOrbTrigger(PlayerbotAI* ai) : Trigger(ai, "razorgore orb", 1) {}
+        bool IsActive() override { RazorgoreOrbAction action(ai); return action.isUseful(); }
+    };
+
+    class BlackwingLairFlankTrigger : public Trigger
+    {
+    public:
+        BlackwingLairFlankTrigger(PlayerbotAI* ai) : Trigger(ai, "blackwing lair flank", 1) {}
+        bool IsActive() override
+        {
+            Unit* target = ai->GetUnit(AI_VALUE(ObjectGuid, "current target"));
+            float angle = 0.0f;
+            return BlackwingMeleeFlankAngle(ai, target, angle) && bot->GetDistance(target, false) <= 15.0f &&
+                std::fabs(std::remainder(target->GetAngle(bot) - angle, float(2 * M_PI))) > 0.25f;
+        }
+    };
+
+    class BlackwingLairSupportTrigger : public Trigger
+    {
+    public:
+        BlackwingLairSupportTrigger(PlayerbotAI* ai) : Trigger(ai, "blackwing lair support", 1) {}
+        bool IsActive() override { BlackwingLairSupportAction action(ai); return action.isUseful(); }
+    };
+    class BlackwingLairPriorityTargetTrigger : public Trigger
+    {
+    public:
+        BlackwingLairPriorityTargetTrigger(PlayerbotAI* ai) : Trigger(ai, "blackwing lair priority target", 1) {}
+        bool IsActive() override { BlackwingLairPriorityTargetAction action(ai); return action.isUseful(); }
+    };
+    class HourglassSandTrigger : public Trigger
+    {
+    public:
+        HourglassSandTrigger(PlayerbotAI* ai) : Trigger(ai, "use hourglass sand", 1) {}
+        bool IsActive() override { HourglassSandAction action(ai); return action.isUseful(); }
+    };
+
+    class BlackwingLairPositionTrigger : public Trigger
+    {
+    public:
+        BlackwingLairPositionTrigger(PlayerbotAI* ai) : Trigger(ai, "blackwing lair safe position", 1) {}
+        bool IsActive() override { BlackwingLairPositionAction action(ai); return action.isUseful(); }
+    };
+
+    class CorruptedHealingCastTrigger : public Trigger
+    {
+    public:
+        CorruptedHealingCastTrigger(PlayerbotAI* ai) : Trigger(ai, "corrupted healing cast", 1) {}
+        bool IsActive() override { return HasCorruptedHealingCast(bot); }
+    };
+
     class BlackwingLairEnterDungeonTrigger : public EnterDungeonTrigger
     {
     public:

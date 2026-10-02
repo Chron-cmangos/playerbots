@@ -1,6 +1,8 @@
 
 #include "playerbot/playerbot.h"
+#include "EncounterSpellPolicy.h"
 #include "MovementActions.h"
+#include "MovementPathSafety.h"
 #include "MotionGenerators/MotionMaster.h"
 #include "MotionGenerators/MovementGenerator.h"
 #include "playerbot/FleeManager.h"
@@ -16,8 +18,51 @@
 #include "Entities/Vehicle.h"
 #endif
 #include "playerbot/strategy/generic/CombatStrategy.h"
+#include "Util/Timer.h"
+
+#include <cmath>
 
 using namespace ai;
+
+namespace
+{
+    // Only constrain pursuit of a fleeing NPC, never a tank's approach to an
+    // enemy attacking a party member. Reuse full-segment hazard geometry so
+    // sparse path waypoints cannot skip over an untouched pack's aggro area.
+    bool UnsafeFleeingPursuit(PlayerbotAI* ai, WorldObject* target)
+    {
+        Player* bot = ai->GetBot();
+        Creature* enemy = dynamic_cast<Creature*>(target);
+        if (!enemy || !enemy->IsFleeing() || !bot->GetGroup() ||
+            !ai->HasRealPlayerMaster() || bot->InBattleGround() || bot->GetTransport())
+            return false;
+
+        AiObjectContext* context = ai->GetAiObjectContext();
+        std::list<HazardPosition> packs;
+        for (ObjectGuid guid : AI_VALUE(std::list<ObjectGuid>, "possible targets no los"))
+        {
+            Unit* unit = ai->GetUnit(guid);
+            if (!unit || unit == enemy || !unit->IsCreature() || !unit->IsInWorld() ||
+                !unit->IsAlive() || !bot->IsInMap(unit) || unit->IsInCombat() ||
+                !unit->CanAttackOnSight(bot)) continue;
+            packs.emplace_back(WorldPosition(unit), unit->GetAttackDistance(bot));
+        }
+
+        PathFinder path(bot);
+        if (!path.calculate(enemy->GetPositionX(), enemy->GetPositionY(), enemy->GetPositionZ(), false) ||
+            path.getPathType() != PATHFIND_NORMAL || path.getPath().size() < 2)
+            return true;
+
+        WorldPosition previous(bot);
+        for (const auto& point : path.getPath())
+        {
+            WorldPosition next(bot->GetMapId(), point.x, point.y, point.z);
+            if (!IsHazardSafeSegment(previous, next, packs)) return true;
+            previous = next;
+        }
+        return false;
+    }
+}
 
 void MovementAction::CreateWp(Player* wpOwner, float x, float y, float z, float o, uint32 entry, bool important)
 {
@@ -230,9 +275,9 @@ bool MovementAction::FlyDirect(const WorldPosition &startPosition, const WorldPo
     
     bool flying = bot->IsFlying() && bot->IsFreeFlying();
     mm.MovePoint(movePosition.getMapId(), Position(movePosition.getX(), movePosition.getY(), movePosition.getZ(), 0.f), flying  ? FORCED_MOVEMENT_FLIGHT : FORCED_MOVEMENT_RUN, flying ? bot->GetSpeed(MOVE_FLIGHT) : 0.f, flying);
-    WaitForReach(movePosition.distance(WorldPosition(movePosition.getX(), movePosition.getY(), movePosition.getZ(), 0.f)));
+    WaitForReach(startPosition.distance(movePosition));
     
-    AI_VALUE(LastMovement&, "last movement").lastAreaTrigger = movePosition;
+    AI_VALUE(LastMovement&, "last movement").lastMoveShort = movePosition;
 
     return true;
 #endif
@@ -431,20 +476,6 @@ bool MovementAction::UseTransport(PlayerbotAI* ai, uint32 entry, WorldPosition d
     Player* bot = ai->GetBot();
     WorldPosition botPos(bot);
 
-    // Mesa elevators move vertically while their X/Y position remains
-    // effectively unchanged. Use 3D distance so upper and lower stops
-    // are not treated as the same dock position.
-    auto dockDistanceSq = [&dockPosition](GenericTransport* trans) -> float
-    {
-        GameObjectInfo const* info =
-            sGOStorage.LookupEntry<GameObjectInfo>(trans->GetEntry());
-
-        if (info && info->displayId == 360) // Elevatorcar.m2
-            return dockPosition.sqDistance(WorldPosition(trans));
-
-        return dockPosition.sqDistance2d(WorldPosition(trans));
-    };
-
     GenericTransport* transport = bot->GetTransport();
 
     if (transport)
@@ -454,7 +485,7 @@ bool MovementAction::UseTransport(PlayerbotAI* ai, uint32 entry, WorldPosition d
         if (transportName.empty())
             transportName = data->name;
 
-        if (dockPosition.mapid == bot->GetMapId() && dockDistanceSq(transport) < INTERACTION_DISTANCE * INTERACTION_DISTANCE)
+        if (dockPosition.mapid == bot->GetMapId() && dockPosition.sqDistance2d(transport) < INTERACTION_DISTANCE * INTERACTION_DISTANCE)
         {
             MoveOffTransport(ai, exitPosition, doTeleport);
             ai->TellDebug(ai->GetMaster(), "Leaving transport " + transportName, "debug move");
@@ -475,7 +506,7 @@ bool MovementAction::UseTransport(PlayerbotAI* ai, uint32 entry, WorldPosition d
 
     for (auto& trans : dockPosition.getTransports(entry))
     {
-        float distance = dockDistanceSq(trans);
+        float distance = dockPosition.sqDistance2d(trans);
 
         if (minDist && distance > minDist)
             continue;
@@ -489,7 +520,7 @@ bool MovementAction::UseTransport(PlayerbotAI* ai, uint32 entry, WorldPosition d
             transportName = data->name;
     }
 
-    if (transport && dockPosition.mapid == bot->GetMapId() && dockDistanceSq(transport) < INTERACTION_DISTANCE * INTERACTION_DISTANCE)
+    if (transport && dockPosition.mapid == bot->GetMapId() && dockPosition.sqDistance2d(transport) < INTERACTION_DISTANCE * INTERACTION_DISTANCE)
     {
         MoveOnTransport(ai, transport, doTeleport);
 
@@ -659,7 +690,10 @@ bool MovementAction::WaitForTransport()
 
     GenericTransport* transport = bot->GetTransport();
 
-    if (!transport || transport->GetEntry() != lastMove.lastTransportEntry || lastMove.lastPath.getPath().front().type != PathNodeType::NODE_TRANSPORT || lastMove.lastPath.getPath().front().entry != lastMove.lastTransportEntry)
+    if (!transport || transport->GetEntry() != lastMove.lastTransportEntry ||
+        lastMove.lastPath.getPath().size() < 2 ||
+        lastMove.lastPath.getPath().front().type != PathNodeType::NODE_TRANSPORT ||
+        lastMove.lastPath.getPath().front().entry != lastMove.lastTransportEntry)
     {
         lastMove.lastTransportEntry = 0;
         return false;
@@ -670,6 +704,14 @@ bool MovementAction::WaitForTransport()
     if(!path.UpcommingSpecialMovement(bot, 0.0f, bot->GetTransport()))
         return false;
 
+    // Special-movement selection can trim the copy down to its final point.
+    // Both the dock and exit must remain before resuming the journey.
+    if (path.getPath().size() < 2 || path.getPath().front().type != PathNodeType::NODE_TRANSPORT ||
+        path.getPath().front().entry != lastMove.lastTransportEntry)
+    {
+        lastMove.lastTransportEntry = 0;
+        return false;
+    }
     PathNodePoint dockPoint = path.getPath().front();
     PathNodePoint telePoint = *std::next(path.getPath().begin());
         
@@ -710,7 +752,7 @@ TravelPath MovementAction::ResolveMovePath(const WorldPosition& startPosition, c
     }
     else
     {
-        std::vector<WorldPosition> path = startPosition.getPathTo(endPosition, bot); //Navemesh pathfinding only.
+        std::vector<WorldPosition> path = startPosition.getPathTo(endPosition, mover); //Navmesh pathfinding for the actual mover.
 
         outMovePath.addPath(path);
     }
@@ -718,8 +760,14 @@ TravelPath MovementAction::ResolveMovePath(const WorldPosition& startPosition, c
     if (!lastMove.lastPath.empty() && !outMovePath.empty() && lastMove.lastPath.getBack().distance(endPosition) <= outMovePath.getBack().distance(endPosition))
         outMovePath = lastMove.lastPath;
 
+    // A failed navigation request is not permission to walk directly to the
+    // requested coordinates. In particular, doing so after an instance
+    // transfer can send a bot through disconnected dungeon geometry.
     if (outMovePath.empty())
-        outMovePath.addPoint(endPosition);
+    {
+        lastMove.clear();
+        return TravelPath();
+    }
 
     return outMovePath;
 }
@@ -961,15 +1009,62 @@ void MovementAction::UpdateFlyingState(
 #endif // !MANGOSBOT_ZERO
 }
 
-void MovementAction::DispatchMovement(TravelPath movePath, bool generatePath, bool masterWalking)
+bool MovementAction::BuildSafeHazardPath(std::vector<WorldPosition>& path, Unit* mover)
 {
-    MotionMaster& mm = *bot->GetMotionMaster();
+    // Detours become precomputed splines. Resolve each leg through the native
+    // navmesh before dispatch; joining edited waypoints directly can cross walls.
+    if (!mover || path.empty() || path.size() > 64 || mover->GetTransport())
+        return false;
 
-    mm.Clear();
+    const auto hazards = AI_VALUE(std::list<HazardPosition>, "hazards");
+    WorldPosition previous(mover);
+    if (!IsFiniteMovementPoint(previous, mover->GetMapId()))
+        return false;
+    std::vector<WorldPosition> resolved{previous};
+    PathFinder finder(mover);
+    for (const WorldPosition& waypoint : path)
+    {
+        if (!IsFiniteMovementPoint(waypoint, mover->GetMapId()))
+            return false;
+        if (previous.distance(waypoint) < 0.05f)
+            continue;
+        if (!finder.calculate(previous.getVector3(), waypoint.getVector3(), false) ||
+            finder.getPathType() != PATHFIND_NORMAL || finder.getPath().size() < 2)
+            return false;
+        for (const auto& point : finder.getPath())
+        {
+            WorldPosition next(mover->GetMapId(), point.x, point.y, point.z);
+            if (!IsHazardSafeSegment(resolved.back(), next, hazards))
+                return false;
+            if (resolved.back().distance(next) >= 0.05f)
+                resolved.push_back(next);
+        }
+        if (!waypoint.isPathTo(resolved))
+            return false;
+        previous = resolved.back();
+    }
+    if (resolved.size() < 2)
+        return false;
+    path.swap(resolved);
+    return true;
+}
 
+bool MovementAction::DispatchMovement(TravelPath movePath, bool generatePath, bool masterWalking)
+{
+    Unit* mover = GetMover(bot);
+    if (!mover)
+        return false;
     std::vector<WorldPosition> path = movePath.getPointPath();
-    WorldPosition movePosition = path.back();
-    float size = WorldPosition().getPathLength(path);    
+    if (path.empty() || !std::all_of(path.begin(), path.end(), [&](const WorldPosition& point) {
+        return IsFiniteMovementPoint(point, mover->GetMapId());
+    }))
+        return false;
+
+    // Clipping may leave just the mover's current position even when the
+    // original destination was distant. Let the caller stop/retry instead of
+    // sending a zero-length native point spline.
+    if (WorldPosition(mover).distance(path.back()) < 0.05f)
+        return false;
 
     ForcedMovement moveMode = masterWalking ? FORCED_MOVEMENT_WALK : FORCED_MOVEMENT_RUN;
 #ifndef MANGOSBOT_ZERO
@@ -977,72 +1072,39 @@ void MovementAction::DispatchMovement(TravelPath movePath, bool generatePath, bo
         moveMode = FORCED_MOVEMENT_FLIGHT;
 #endif
 
-    if (!generatePath || bot->IsFreeFlying())
+    bool useHazardPath = generatePath && !bot->IsFreeFlying() &&
+        !AI_VALUE(std::list<HazardPosition>, "hazards").empty();
+    if (useHazardPath)
     {
-#ifdef MANGOSBOT_ZERO
-        mm.MovePoint(movePosition.getMapId(),
-            movePosition.getX(),
-            movePosition.getY(),
-            movePosition.getZ(),
-            moveMode,
-            generatePath);
+        GeneratePathAvoidingHazards(path);
+        if (!BuildSafeHazardPath(path, mover))
+            return false;
+    }
+
+    // Keep the existing movement intact until the replacement has been checked.
+    MotionMaster& mm = *mover->GetMotionMaster();
+    mm.Clear();
+    const WorldPosition& destination = path.back();
+    if (useHazardPath)
+    {
+        auto points = WorldPosition().toPointsArray(path);
+#ifndef MANGOSBOT_TWO
+        mm.MovePath(points, moveMode, false, false);
 #else
-        mm.MovePoint(movePosition.getMapId(),
-            Position(movePosition.getX(), movePosition.getY(), movePosition.getZ(), 0.f),
-            moveMode,
-            bot->IsFlying() ? bot->GetSpeed(MOVE_FLIGHT) : 0.f,
-            bot->IsFlying());
+        mm.MovePath(points, moveMode, false);
 #endif
     }
     else
     {
-        GeneratePathAvoidingHazards(path);
-
-        std::vector<G3D::Vector3> pointPath = WorldPosition().toPointsArray(path);
-        pointPath.insert(pointPath.begin(), WorldPosition(bot).getVector3());
-
-        bool usePath = false;
-
-        if (usePath)
-        {
-            bool normalizeZ = true;
-
-            for (auto& p : pointPath)
-            {
-                if (bot->GetTransport())
-                    bot->GetTransport()->CalculatePassengerPosition(p.x, p.y, p.z);
-                bot->UpdateAllowedPositionZ(p.x, p.y, p.z);
-                if (bot->GetTransport())
-                    bot->GetTransport()->CalculatePassengerOffset(p.x, p.y, p.z);
-            }
-
-#ifndef MANGOSBOT_TWO
-            mm.MovePath(pointPath, moveMode, false, false);
-#else
-        mm.MovePath(pointPath, moveMode, false);
-#endif
-        }
-        else
-        {
-            WorldPosition movePosition = path.back();
-
 #ifdef MANGOSBOT_ZERO
-            mm.MovePoint(movePosition.getMapId(),
-                movePosition.getX(),
-                movePosition.getY(),
-                movePosition.getZ(),
-                moveMode,
-                generatePath);
+        mm.MovePoint(destination.getMapId(), destination.getX(), destination.getY(), destination.getZ(), moveMode, generatePath);
 #else
-            mm.MovePoint(movePosition.getMapId(),
-                Position(movePosition.getX(), movePosition.getY(), movePosition.getZ(), 0.f),
-                moveMode,
-                bot->IsFlying() ? bot->GetSpeed(MOVE_FLIGHT) : 0.f,
-                !bot->IsFlying());
+        mm.MovePoint(destination.getMapId(), Position(destination.getX(), destination.getY(), destination.getZ(), 0.0f),
+            moveMode, bot->IsFlying() ? mover->GetSpeed(MOVE_FLIGHT) : 0.0f, generatePath);
 #endif
-        }
     }
-    WaitForReach(size);
+    WaitForReach(WorldPosition().getPathLength(path));
+    return true;
 }
 
 
@@ -1054,12 +1116,11 @@ Unit* MovementAction::GetMover(Player* bot)
         if (transportInfo->IsOnVehicle())
         {
             Unit* vehicle = (Unit*)transportInfo->GetTransport();
-            if (vehicle && vehicle->GetVehicleInfo())
-            {
-                VehicleSeatEntry const* seat = vehicle->GetVehicleInfo()->GetSeatEntry(transportInfo->GetTransportSeat());
-                if (!seat || !seat->HasFlag(SEAT_FLAG_CAN_CONTROL))
-                    return bot;
-            }
+            if (!vehicle || !vehicle->GetVehicleInfo())
+                return nullptr;
+            VehicleSeatEntry const* seat = vehicle->GetVehicleInfo()->GetSeatEntry(transportInfo->GetTransportSeat());
+            if (!seat || !seat->HasFlag(SEAT_FLAG_CAN_CONTROL))
+                return nullptr;
             return vehicle;
         }
     }
@@ -1069,7 +1130,7 @@ Unit* MovementAction::GetMover(Player* bot)
 
 bool MovementAction::MoveTo2(const WorldPosition& endPos, bool idle, bool react, bool noPath, bool ignoreEnemyTargets)
 {
-    if (!endPos.isValid())
+    if (!endPos.isValid() || !std::isfinite(endPos.getX()) || !std::isfinite(endPos.getY()) || !std::isfinite(endPos.getZ()))
         return false;
 
     UpdateMovementState();
@@ -1079,7 +1140,45 @@ bool MovementAction::MoveTo2(const WorldPosition& endPos, bool idle, bool react,
 
     Unit* mover = GetMover(bot);
 
+    if (!mover)
+        return false;
+
     LastMovement& lastMove = AI_VALUE(LastMovement&, "last movement");
+
+    // Bound retries for an unchanged navigation failure.  The key is per bot,
+    // map/instance, transition generation and an eight-yard 3D destination cell,
+    // so moving the target or completing a transition invalidates it naturally.
+    int32 const destinationCellX = static_cast<int32>(std::floor(endPos.getX() / 8.0f));
+    int32 const destinationCellY = static_cast<int32>(std::floor(endPos.getY() / 8.0f));
+    int32 const destinationCellZ = static_cast<int32>(std::floor(endPos.getZ() / 8.0f));
+    uint32 const transitionGeneration = ai->GetTransitionGeneration();
+    uint32 const nowMs = WorldTimer::getMSTime();
+    bool const sameFailedRequest = lastMove.failedPathMap == endPos.getMapId() &&
+        lastMove.failedPathInstance == bot->GetInstanceId() &&
+        lastMove.failedPathCellX == destinationCellX && lastMove.failedPathCellY == destinationCellY &&
+        lastMove.failedPathCellZ == destinationCellZ &&
+        lastMove.failedPathGeneration == transitionGeneration;
+    if (sameFailedRequest && static_cast<int32>(lastMove.failedPathRetryUntil - nowMs) > 0)
+        return false;
+    if (!sameFailedRequest)
+        lastMove.clearPathFailure();
+
+    // Different instances can share the same map id (all Scarlet Monastery
+    // wings are a common example). Never try to follow the master's raw
+    // coordinates across those disconnected copies.
+    if (Player* master = ai->GetMaster())
+    {
+        if (bot->GetMapId() == master->GetMapId() &&
+            bot->GetInstanceId() != master->GetInstanceId() &&
+            endPos.getMapId() == master->GetMapId() &&
+            endPos.sqDistance(WorldPosition(master)) <=
+                sPlayerbotAIConfig.sightDistance * sPlayerbotAIConfig.sightDistance)
+        {
+            lastMove.clear();
+            ai->StopMoving();
+            return false;
+        }
+    }
 
     bool detailedMove = ai->AllowActivity(DETAILED_MOVE_ACTIVITY, true);
     if (!detailedMove && lastMove.nextTeleport)
@@ -1097,7 +1196,7 @@ bool MovementAction::MoveTo2(const WorldPosition& endPos, bool idle, bool react,
     if (WaitForTransport())
         return true;
 
-    WorldPosition startPos(bot);
+    WorldPosition startPos(mover);
     float totalDistance = startPos.distance(endPos);
     float maxDistChange = totalDistance * 0.1f;
 
@@ -1126,7 +1225,19 @@ bool MovementAction::MoveTo2(const WorldPosition& endPos, bool idle, bool react,
     lastMove.setPath(movePath);
 
     if (movePath.empty())
+    {
+        lastMove.failedPathMap = endPos.getMapId();
+        lastMove.failedPathInstance = bot->GetInstanceId();
+        lastMove.failedPathCellX = destinationCellX;
+        lastMove.failedPathCellY = destinationCellY;
+        lastMove.failedPathCellZ = destinationCellZ;
+        lastMove.failedPathGeneration = transitionGeneration;
+        lastMove.failedPathRetryUntil = WorldTimer::getMSTime() + sPlayerbotAIConfig.pathFailureRetryMs;
+        ai->StopMoving();
         return false;
+    }
+
+    lastMove.clearPathFailure();
 
      
     if (!bot->GetTransport())
@@ -1313,7 +1424,19 @@ bool MovementAction::MoveTo2(const WorldPosition& endPos, bool idle, bool react,
     */
     // END DEBUG
 
-    DispatchMovement(movePath, generatePath, masterWalking);
+    if (!DispatchMovement(movePath, generatePath, masterWalking))
+    {
+        lastMove.clear();
+        lastMove.failedPathMap = endPos.getMapId();
+        lastMove.failedPathInstance = bot->GetInstanceId();
+        lastMove.failedPathCellX = destinationCellX;
+        lastMove.failedPathCellY = destinationCellY;
+        lastMove.failedPathCellZ = destinationCellZ;
+        lastMove.failedPathGeneration = transitionGeneration;
+        lastMove.failedPathRetryUntil = WorldTimer::getMSTime() + sPlayerbotAIConfig.pathFailureRetryMs;
+        ai->StopMoving();
+        return false;
+    }
 
     if (!idle)
         ClearIdleState();
@@ -2594,42 +2717,34 @@ bool MovementAction::ChaseTo(WorldObject* obj, float distance, float angle)
     if (!ai->IsSafe(obj))
         return false;
 
+    if (UnsafeFleeingPursuit(ai, obj))
+    {
+        if (sServerFacade.GetChaseTarget(bot) == obj) ai->StopMoving();
+        if (ai->HasStrategy("debug move", BotState::BOT_STATE_NON_COMBAT))
+            ai->TellPlayerNoFacing(GetMaster(), "Holding pursuit: fleeing enemy has an unsafe path or a fresh pack on its route.");
+        return false;
+    }
+
 #ifdef MANGOSBOT_TWO
     TransportInfo* transportInfo = bot->GetTransportInfo();
     if (transportInfo && transportInfo->IsOnVehicle())
     {
-        Unit* vehicle = (Unit*)transportInfo->GetTransport();
-        VehicleSeatEntry const* seat = vehicle->GetVehicleInfo()->GetSeatEntry(transportInfo->GetTransportSeat());
-        if (!seat || !seat->HasFlag(SEAT_FLAG_CAN_CONTROL))
+        if (!GetMover(bot))
             return false;
 
-        //vehicle->GetMotionMaster()->Clear();
         return MoveNear(obj, 30.0f);
-        //vehicle->GetMotionMaster()->MoveChase((Unit*)obj, 30.0f, angle);
-        //return true;
     }
 #endif
 
-    /* Disabled: the active combat stance determines melee chase positioning.
     if (ai->HasStrategy("behind", BotState::BOT_STATE_COMBAT))
-        angle = GetFollowAngle() / 3 + obj->GetOrientation() + M_PI;
-    */
-
-    if (!ai->IsRanged(bot) && obj->IsUnit() && sServerFacade.IsHostileTo(bot, static_cast<Unit*>(obj)))
     {
-        Unit* target = static_cast<Unit*>(obj);
-        Stance* stance = AI_VALUE(Stance*, "stance");
-
-        if (stance && stance->getName() != "turnback")
+        angle = GetFollowAngle() / 3 + obj->GetOrientation() + M_PI;
+        float flankAngle = 0.0f;
+        if (BlackwingMeleeFlankAngle(ai, dynamic_cast<Unit*>(obj), flankAngle))
         {
-            WorldLocation stanceLoc = stance->GetLocation();
-
-            if (!Formation::IsNullLocation(stanceLoc) && stanceLoc.mapid != uint32(-1))
-            {
-                float absAngle = atan2(stanceLoc.coord_y - target->GetPositionY(), stanceLoc.coord_x - target->GetPositionX());
-
-                angle = absAngle - target->GetOrientation();
-            }
+            // Native chase takes an angle relative to the target's facing.
+            angle = flankAngle - obj->GetOrientation();
+            if (angle < 0) angle += float(2 * M_PI);
         }
     }
 
@@ -2652,11 +2767,12 @@ bool MovementAction::ChaseTo(WorldObject* obj, float distance, float angle)
 
     const float distanceToTarget = botPosition.distance(targetPosition);
 
-    if (distanceToTarget > sPlayerbotAIConfig.sightDistance)
+    if (distanceToTarget > sPlayerbotAIConfig.sightDistance ||
+        (sPlayerbotAIConfig.unreachableTargetRecovery && !bot->IsWithinLOSInMap(obj, true)))
         return MoveTo(targetPosition.getMapId(), targetPosition.getX(), targetPosition.getY(), targetPosition.getZ());
 
     const Vector3 directionToTarget = (targetPoint - botPoint).directionOrZero();
-    const Vector3 endPoint = botPoint + (directionToTarget * std::min(distance, distanceToTarget));
+    const Vector3 endPoint = targetPoint - (directionToTarget * std::clamp(distance, 0.0f, distanceToTarget));
     WorldPosition endPosition(obj->GetMapId(), endPoint.x, endPoint.y, endPoint.z);
     endPosition.setZ(endPosition.getHeight());
 
@@ -2692,24 +2808,34 @@ bool MovementAction::ChaseTo(WorldObject* obj, float distance, float angle)
 
     MotionMaster& mm = *bot->GetMotionMaster();
 
-    // Prevent moving if requested to move into a hazard
-    if (IsValidPosition(endPosition, botPosition))
+    // Native chase would recalculate toward the target and discard the detour.
+    // When hazards are present, dispatch only a verified route and never fall
+    // through to that unchecked chase after a failed adjustment.
+    if (!AI_VALUE(std::list<HazardPosition>, "hazards").empty())
     {
-        std::vector<WorldPosition> path = botPosition.getPathTo(endPosition,bot);
-        if (GeneratePathAvoidingHazards(path))
+        if (!IsFiniteMovementPoint(endPosition, bot->GetMapId()) || !IsValidPosition(endPosition, botPosition))
         {
-            float distance = botPosition.getPathLength(path);
-            mm.Clear(false, true);
-
-            std::vector<G3D::Vector3> pointsArray = WorldPosition().toPointsArray(path);
-#ifndef MANGOSBOT_TWO  
-            mm.MovePath(pointsArray, FORCED_MOVEMENT_RUN, false, false);
-#else
-            mm.MovePath(pointsArray, FORCED_MOVEMENT_RUN, false);
-#endif
-            WaitForReach(distance);
-            return true;
+            ai->StopMoving();
+            return false;
         }
+        std::vector<WorldPosition> path = botPosition.getPathTo(endPosition,bot);
+        GeneratePathAvoidingHazards(path);
+        if (!BuildSafeHazardPath(path, bot))
+        {
+            ai->StopMoving();
+            return false;
+        }
+        float pathDistance = botPosition.getPathLength(path);
+        mm.Clear(false, true);
+
+        std::vector<G3D::Vector3> pointsArray = WorldPosition().toPointsArray(path);
+#ifndef MANGOSBOT_TWO
+        mm.MovePath(pointsArray, FORCED_MOVEMENT_RUN, false, false);
+#else
+        mm.MovePath(pointsArray, FORCED_MOVEMENT_RUN, false);
+#endif
+        WaitForReach(pathDistance);
+        return true;
     }
 
     if (bot->GetMotionMaster()->GetCurrentMovementGeneratorType() == CHASE_MOTION_TYPE)
@@ -3099,6 +3225,11 @@ bool MovementAction::IsHazardNearPosition(const WorldPosition& position, HazardP
 
 bool MovementAction::GeneratePathAvoidingHazards(std::vector<WorldPosition>& movePath)
 {
+    // Only interior points can be changed. Navigation failure can return an
+    // empty path; never read front() or subtract from an empty size.
+    if (movePath.size() < 3)
+        return false;
+
     std::list<HazardPosition> hazards = AI_VALUE(std::list<HazardPosition>, "hazards");
     if (hazards.empty())
         return false;
@@ -3195,6 +3326,7 @@ bool MovementAction::GeneratePathAvoidingHazards(std::vector<WorldPosition>& mov
         else
         {
             firstPoint = false;
+            movePath[i] = pathPoint;
             previousPosition.coord_x = pathPoint.getX();
             previousPosition.coord_y = pathPoint.getY();
             previousPosition.coord_z = pathPoint.getZ();
@@ -3279,14 +3411,17 @@ bool MoveToLootAction::Execute(Event& event)
         ai->TellPlayerNoFacing(GetMaster(), out);
     }
 
-    if (sServerFacade.IsWithinLOSInMap(bot, wo))
+    const bool moved = sServerFacade.IsWithinLOSInMap(bot, wo) ?
+        MoveNear(wo, sPlayerbotAIConfig.contactDistance) : MoveTo(WorldPosition(wo));
+    if (!moved)
     {
-        bool move = MoveNear(wo, sPlayerbotAIConfig.contactDistance);
-        WaitForReach(bot->GetDistance(wo));
-        return move;
+        // A failed navigation request is already held in the per-bot path
+        // backoff. Drop the current object as well so loot/gather triggers do
+        // not recreate the same futile movement action every AI pass.
+        AI_VALUE(LootObjectStack*, "available loot")->Remove(loot.guid);
+        RESET_AI_VALUE(LootObject, "loot target");
     }
-
-    return MoveTo(WorldPosition(wo));
+    return moved;
 }
 
 bool MoveOutOfEnemyContactAction::Execute(Event& event)
@@ -3342,10 +3477,12 @@ bool SetBehindTargetAction::Execute(Event& event)
         return false;
 
     float angle = GetFollowAngle() / 3 + target->GetOrientation() + M_PI / 2.0f;
+    const bool flank = BlackwingMeleeFlankAngle(ai, target, angle);
+    const float destinationAngle = flank ? angle : target->GetOrientation() + float(M_PI);
 
     float distance = bot->GetCombinedCombatReach(target, true) * 0.8f;
-    float x = target->GetPositionX() + cos(target->GetOrientation()) * -1.0f * distance,
-        y = target->GetPositionY() + sin(target->GetOrientation()) * -1.0f * distance,
+    float x = target->GetPositionX() + cos(destinationAngle) * distance,
+        y = target->GetPositionY() + sin(destinationAngle) * distance,
         z = target->GetPositionZ();
     bot->UpdateGroundPositionZ(x, y, z);
 
@@ -3360,7 +3497,7 @@ bool SetBehindTargetAction::Execute(Event& event)
 
     const bool isLos = target->IsWithinLOS(x, y, z + bot->GetCollisionHeight(), true);
     bool moved = MoveTo(bot->GetMapId(), x, y, z);
-    if (!moved && !isLos)
+    if (!moved && !isLos && !flank)
     {
         distance = sPlayerbotAIConfig.contactDistance;
         x = target->GetPositionX() + cos(angle) * distance;
@@ -3379,7 +3516,10 @@ bool SetBehindTargetAction::isUseful()
         return false;
 
     Unit* target = ai->GetUnit(AI_VALUE(ObjectGuid, "current target"));
-    if (target && !bot->IsFacingTargetsBack(target))
+    float flankAngle = 0.0f;
+    const bool flank = BlackwingMeleeFlankAngle(ai, target, flankAngle);
+    const bool needsFlank = flank && std::fabs(std::remainder(target->GetAngle(bot) - flankAngle, float(2 * M_PI))) > 0.25f;
+    if (target && (needsFlank || (!flank && !bot->IsFacingTargetsBack(target))))
     {
         // Don't move behind if the target is too far away
         const float distance = bot->GetDistance(target, false);
@@ -3616,6 +3756,11 @@ bool JumpAction::Execute(ai::Event &event)
             if (!followTarget || !ai->IsSafe(followTarget))
                 return false;
 
+            // A combat anchor or another bot moving below us is not permission
+            // to jump off a ledge. Preserve shortcuts when following the human.
+            if (!bot->InBattleGround() && followTarget != ai->GetMaster())
+                return false;
+
             if ((bot->GetMotionMaster()->GetCurrentMovementGeneratorType() == FOLLOW_MOTION_TYPE ||
             bot->GetMotionMaster()->GetCurrentMovementGeneratorType() == POINT_MOTION_TYPE) &&
             (bot->GetMotionMaster()->GetCurrent()->GetCurrentTarget() != followTarget ||
@@ -3642,8 +3787,13 @@ bool JumpAction::Execute(ai::Event &event)
 
         if (options == "chase")
         {
+            // Player-led dungeon groups must not use jumps to pursue enemies.
+            // The separate follow mode still follows the human down a ledge.
             Unit* chaseTarget = ai->GetUnit(AI_VALUE(ObjectGuid, "current target"));
             if (!chaseTarget || !ai->IsSafe(chaseTarget))
+                return false;
+
+            if (chaseTarget->IsCreature() && !bot->InBattleGround() && ai->HasRealPlayerMaster())
                 return false;
 
             if ((bot->GetMotionMaster()->GetCurrentMovementGeneratorType() == CHASE_MOTION_TYPE ||

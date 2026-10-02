@@ -3,6 +3,7 @@
 #include "PartyMemberToHeal.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/ServerFacade.h"
+#include "playerbot/strategy/actions/EncounterSpellPolicy.h"
 #include "playerbot/LootObjectStack.h"
 
 using namespace ai;
@@ -18,12 +19,17 @@ public:
 
 uint32 getIncomingdamage(Unit const* pTarget)
 {
-    uint32 damage = 0;
+    double damage = 0;
     for (auto const& pAttacker : pTarget->getAttackers())
         if (pAttacker->CanReachWithMeleeAttack(pTarget))
-            damage += uint32((pAttacker->GetFloatValue(UNIT_FIELD_MINDAMAGE) + pAttacker->GetFloatValue(UNIT_FIELD_MAXDAMAGE)) / 2);
+        {
+            const double hit = (double(pAttacker->GetFloatValue(UNIT_FIELD_MINDAMAGE)) + pAttacker->GetFloatValue(UNIT_FIELD_MAXDAMAGE)) / 2;
+            if (!std::isfinite(hit) || hit <= 0) continue;
+            damage += hit;
+            if (damage >= pTarget->GetHealth()) return pTarget->GetHealth();
+        }
 
-    return damage;
+    return uint32(damage);
 }
 
 bool compareByHealth(const Unit *u1, const Unit *u2)
@@ -31,19 +37,25 @@ bool compareByHealth(const Unit *u1, const Unit *u2)
     return u1->GetHealthPercent() < u2->GetHealthPercent();
 }
 
-bool compareByMissingHealth(const Unit* u1, const Unit* u2, bool incomingDamage = false)
-{
-    uint32 hp1 = u1->GetHealth() - (incomingDamage ? getIncomingdamage(u1) : 0);
-    uint32 hpmax1 = u1->GetMaxHealth();
-    uint32 hp2 = u2->GetHealth() - (incomingDamage ? getIncomingdamage(u2) : 0);
-    uint32 hpmax2 = u2->GetMaxHealth();
-    return (hpmax1 - hp1) > (hpmax2 - hp2);
-}
-
 ObjectGuid PartyMemberToHeal::Calculate()
 {
     std::vector<Unit*> needHeals;
     std::vector<Unit*> tankTargets;
+    const bool preHealing = ai->HasStrategy("preheal", BotState::BOT_STATE_COMBAT);
+    // Freeze each candidate's forecast once for this selection. Rewalking its
+    // attackers in the sort comparator wastes work and can change comparisons.
+    std::map<Unit*, uint32> predictedHealth;
+    const auto forecast = [&](Unit* target) -> uint32 {
+        auto found = predictedHealth.find(target);
+        if (found != predictedHealth.end()) return found->second;
+        const uint32 health = target->GetHealth();
+        const uint32 damage = preHealing ? std::min(health, getIncomingdamage(target)) : 0;
+        return predictedHealth.emplace(target, health - damage).first->second;
+    };
+    const auto addCandidate = [&](Unit* target) {
+        if (std::find(needHeals.begin(), needHeals.end(), target) == needHeals.end())
+            needHeals.push_back(target);
+    };
     if (bot->GetSelectionGuid())
     {
         Unit* target = ai->GetUnit(bot->GetSelectionGuid());
@@ -53,22 +65,18 @@ ObjectGuid PartyMemberToHeal::Calculate()
             target->GetHealthPercent() < 100 && 
             Check(target))
         {
-            needHeals.push_back(target);
+            addCandidate(target);
         }
     }
 
     if (GuidPosition rpgTarget = AI_VALUE(GuidPosition, "rpg target"))
     {
         Unit* target = rpgTarget.GetCreature(bot->GetInstanceId());
-        if (target && sServerFacade.IsFriendlyTo(bot, target) && target->GetHealthPercent() < 100)
+        if (Check(target) && target->GetHealthPercent() < 100)
         {
             LootObject loot = AI_VALUE(LootObject, "loot target");
-
             if (!loot.IsLootPossible(bot))
-            {
-
-                needHeals.push_back(target);
-            }
+                addCandidate(target);
         }
     }
 
@@ -96,27 +104,21 @@ ObjectGuid PartyMemberToHeal::Calculate()
                 continue;
             }
 
-            // do not heal if they will not receive healing due to debuff
-            if (player->GetMaxNegativeAuraModifier(SPELL_AURA_MOD_HEALING_PCT) <= -100)
-                continue;
-
-            uint32 incomingDamage = 0;
-            if (ai->HasStrategy("preheal", BotState::BOT_STATE_COMBAT))
-                incomingDamage = getIncomingdamage(player);
-
-            uint8 health = (((player->GetHealth() - incomingDamage) * 100.0f) / player->GetMaxHealth());
-            if (isTank || (health < sPlayerbotAIConfig.almostFullHealth && !IsTargetOfSpellCast(player, predicate)))
+            uint8 health = uint8((double(forecast(player)) * 100.0) / player->GetMaxHealth());
+            if (isTank || ((health < sPlayerbotAIConfig.almostFullHealth || NeedsFullHealingToRemoveAura(player) || RemainingHealingAbsorb(player)) &&
+                (health < sPlayerbotAIConfig.criticalHealth || !IsTargetOfSpellCast(player, predicate))))
             { 
-                needHeals.push_back(player);
+                addCandidate(player);
             }
 
             Pet* pet = player->GetPet();
-            if (pet && CanHealPet(pet))
+            if (pet && CanHealPet(pet) && Check(pet))
             {
                 health = pet->GetHealthPercent();
-                if (health < sPlayerbotAIConfig.almostFullHealth || !IsTargetOfSpellCast(player, predicate))
+                if ((health < sPlayerbotAIConfig.almostFullHealth || NeedsFullHealingToRemoveAura(pet) || RemainingHealingAbsorb(pet)) &&
+                    !IsTargetOfSpellCast(pet, predicate))
                 {
-                    needHeals.push_back(pet);
+                    addCandidate(pet);
                 }
             }
 
@@ -137,8 +139,21 @@ ObjectGuid PartyMemberToHeal::Calculate()
         needHeals = tankTargets;
     }
 
-    bool preHealing = ai->HasStrategy("preheal", BotState::BOT_STATE_COMBAT);
-    sort(needHeals.begin(), needHeals.end(), [preHealing](const Unit* u1, const Unit* u2) { return compareByMissingHealth(u1, u2, preHealing); });
+    // Distribute healers within the most urgent health band. A second healer
+    // must not be sent to a healthy tank while the only injured player waits.
+    const auto urgency = [&](Unit* target) {
+        if (target->GetHealthPercent() < sPlayerbotAIConfig.criticalHealth) return 0;
+        if (double(forecast(target)) * 100.0 / target->GetMaxHealth() < sPlayerbotAIConfig.lowHealth) return 1;
+        return 2;
+    };
+    std::map<Unit*, uint64> healingNeed;
+    for (Unit* target : needHeals)
+        healingNeed[target] = uint64(target->GetMaxHealth() - forecast(target)) + RemainingHealingAbsorb(target);
+    std::stable_sort(needHeals.begin(), needHeals.end(), [&](Unit* u1, Unit* u2) {
+        const int urgency1 = urgency(u1), urgency2 = urgency(u2);
+        if (urgency1 != urgency2) return urgency1 < urgency2;
+        return healingNeed.at(u1) > healingNeed.at(u2);
+    });
 
     int healerIndex = 0;
     if (!partyMembers.empty())
@@ -153,7 +168,7 @@ ObjectGuid PartyMemberToHeal::Calculate()
             {
                 break;
             }
-            else if (ai->IsHeal(player) && player->GetPlayerbotAI())
+            else if (player->IsAlive() && bot->IsInMap(player) && ai->IsHeal(player) && player->GetPlayerbotAI() && player->GetMaxPower(POWER_MANA))
             {
                 float percent = (float)player->GetPower(POWER_MANA) / (float)player->GetMaxPower(POWER_MANA) * 100.0;
                 if (percent > sPlayerbotAIConfig.lowMana)
@@ -168,9 +183,11 @@ ObjectGuid PartyMemberToHeal::Calculate()
         healerIndex = 1;
     }
 
-    healerIndex = healerIndex % needHeals.size();
-    Unit* unit = needHeals[healerIndex];
-    return unit ? unit->GetObjectGuid() : ObjectGuid();
+    const int mostUrgent = urgency(needHeals.front());
+    const size_t sameUrgency = std::count_if(needHeals.begin(), needHeals.end(),
+        [&](Unit* target) { return urgency(target) == mostUrgent; });
+    healerIndex = healerIndex % sameUrgency;
+    return needHeals[healerIndex]->GetObjectGuid();
 }
 
 bool PartyMemberToHeal::CanHealPet(Pet* pet)
@@ -180,24 +197,20 @@ bool PartyMemberToHeal::CanHealPet(Pet* pet)
 
 bool PartyMemberToHeal::Check(Unit* player)
 {
-    bool isBg = bot->InBattleGround();
+    const float maxDist = ai->GetRange("heal");
 
-    float maxDist = ai->GetRange("heal");
-    if (isBg)
-    {
-        maxDist *= 0.5f;
-    }
-
-    if (!player)
+    if (!player || !bot->IsInWorld() || !player->IsInWorld() || !player->IsAlive() ||
+        !player->GetMaxHealth() || !bot->IsInMap(player) || !sServerFacade.IsFriendlyTo(bot, player))
         return false;
 
     if (player->GetObjectGuid() == bot->GetObjectGuid())
         return false;
 
-    if (player->GetMapId() != bot->GetMapId())
+    if (player->IsPlayer() && static_cast<Player*>(player)->IsBeingTeleported())
         return false;
 
-    if (!player->IsInWorld())
+    if (player->GetMaxNegativeAuraModifier(SPELL_AURA_MOD_HEALING_PCT) <= -100 &&
+        !UpcomingEncounterHealingWindow(bot, player))
         return false;
                                                      
     if (sServerFacade.GetDistance2d(bot, player) > maxDist)
@@ -211,11 +224,10 @@ std::vector<Player*> PartyMemberToHeal::GetPartyMembers()
     std::vector<Player*> partyMembers;
     if (ai->HasStrategy("focus heal targets", BotState::BOT_STATE_COMBAT))
     {
-        Unit* player = nullptr;
         const std::list<ObjectGuid> focusHealTargets = AI_VALUE(std::list<ObjectGuid>, "focus heal targets");
         for(const ObjectGuid& focusHealTarget : focusHealTargets)
         {
-            Player* player = (Player*)ai->GetUnit(focusHealTarget);
+            Player* player = dynamic_cast<Player*>(ai->GetUnit(focusHealTarget));
             if (player && player->IsInGroup(bot) && ai->IsSafe(player))
             {
                 partyMembers.push_back(player);
@@ -267,8 +279,16 @@ ObjectGuid PartyMemberToProtect::Calculate()
         if (!pVictim || !pVictim->IsPlayer())
             continue;
 
-        if (pVictim == bot)
+        Player* player = static_cast<Player*>(pVictim);
+        if (pVictim == bot || !ai->IsSafe(player) || !player->IsInWorld() || !player->IsAlive() ||
+            player->IsBeingTeleported() || !bot->IsInMap(player) || !bot->IsInGroup(player) ||
+            !sServerFacade.IsFriendlyTo(bot, player) || player->duel)
             continue;
+
+#ifdef MANGOSBOT_TWO
+        if (!(bot->GetPhaseMask() & player->GetPhaseMask()))
+            continue;
+#endif
 
         if (sServerFacade.GetDistance2d(pVictim, bot) > 30.0f)
             continue;

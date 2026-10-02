@@ -6,11 +6,142 @@
 #include "playerbot/strategy/AiObjectContext.h"
 #include "playerbot/strategy/values/HazardsValue.h"
 #include "playerbot/strategy/actions/MovementActions.h"
+#include "playerbot/strategy/actions/DungeonActions.h"
+#include "playerbot/strategy/actions/TempestKeepActions.h"
 #include "Grids/GridNotifiers.h"
 #include "Grids/GridNotifiersImpl.h"
 #include "Grids/CellImpl.h"
 
 using namespace ai;
+bool RotatingBeamTrigger::IsActive()
+{
+    return RotatingBeamAction(ai).isUseful();
+}
+
+bool VashjCoreTrigger::IsActive()
+{
+    return VashjCoreAction(ai).isUseful();
+}
+
+bool InnerDemonTrigger::IsActive()
+{
+    InnerDemonAction action(ai);
+    return action.isUseful();
+}
+
+
+bool HeiganDanceTrigger::IsActive()
+{
+    HeiganDanceAction action(ai);
+    return action.isUseful();
+}
+
+bool NajentusSpineTrigger::IsActive()
+{
+    NajentusSpineAction action(ai);
+    return action.isUseful();
+}
+
+bool NajentusShieldTrigger::IsActive()
+{
+    NajentusShieldAction action(ai);
+    return action.isUseful();
+}
+
+bool ArchimondeTearsTrigger::IsActive()
+{
+    ArchimondeTearsAction action(ai);
+    return action.isUseful();
+}
+
+bool LinkedBurstTrigger::IsActive()
+{
+    LinkedBurstAction action(ai);
+    return action.isUseful();
+}
+
+bool AkilzonStormTrigger::IsActive()
+{
+    AkilzonStormAction action(ai);
+    return action.isUseful();
+}
+
+bool ColdMovementTrigger::IsActive()
+{
+    ColdMovementAction action(ai);
+    return action.isUseful();
+}
+
+bool TharonjaSkeletonTrigger::IsActive()
+{
+    return TharonjaSkeletonAction(ai).isUseful();
+}
+
+bool ViscidusFrostTrigger::IsActive()
+{
+    ViscidusFrostAction action(ai);
+    return action.isUseful();
+}
+
+bool MoamManaControlTrigger::IsActive()
+{
+    MoamManaControlAction action(ai);
+    return action.isUseful();
+}
+
+bool HakkarPoisonTrigger::IsActive()
+{
+    HakkarPoisonAction action(ai);
+    return action.isUseful();
+}
+
+bool OssirianCrystalTrigger::IsActive()
+{
+    OssirianCrystalAction action(ai);
+    return action.isUseful();
+}
+
+bool BossCoverTrigger::IsActive()
+{
+    BossCoverAction action(ai);
+    return action.isUseful();
+}
+
+bool DungeonAddTargetTrigger::IsActive()
+{
+    DungeonAddTargetAction action(ai);
+    return action.isUseful();
+}
+
+bool SolarianPositionTrigger::IsActive()
+{
+    SolarianPositionAction action(ai);
+    return action.isUseful();
+}
+
+bool SolarianPriorityTargetTrigger::IsActive()
+{
+    SolarianPriorityTargetAction action(ai);
+    return action.isUseful();
+}
+
+bool MagtheridonCubeTrigger::IsActive()
+{
+    MagtheridonCubeAction action(ai);
+    return action.isUseful();
+}
+
+bool GruulSpreadTrigger::IsActive()
+{
+    GruulSpreadAction action(ai);
+    return action.isUseful();
+}
+
+bool BossCastPositionTrigger::IsActive()
+{
+    BossCastPositionAction action(ai);
+    return action.isUseful();
+}
 
 bool EnterDungeonTrigger::IsActive()
 {
@@ -101,28 +232,14 @@ bool CloseToHazardTrigger::IsActive()
                 {
                     closeToHazard = true;
                 }
-            }
-
-            // Cache the hazards
-            Hazard hazard(possibleHazardGuid, hazardDuration, hazardRadius);
-            SET_AI_VALUE(Hazard, "add hazard", std::move(hazard));
-        }
-    }
-
-    // Don't trigger if the bot is moving
-    if (closeToHazard)
-    {
-        const Action* lastExecutedAction = ai->GetLastExecutedAction(BotState::BOT_STATE_COMBAT);
-        if (lastExecutedAction)
-        {
-            const MovementAction* movementAction = dynamic_cast<const MovementAction*>(lastExecutedAction);
-            if (movementAction)
-            {
-                closeToHazard = false;
+                Hazard hazard(possibleHazardGuid, hazardDuration, hazardRadius);
+                SET_AI_VALUE(Hazard, "add hazard", std::move(hazard));
             }
         }
     }
 
+    // A previous movement action does not prove the bot escaped: it can have
+    // failed, stopped, or entered a newly spawned hazard. Recheck actual position.
     return closeToHazard;
 }
 
@@ -130,11 +247,13 @@ bool CloseToHazardTrigger::IsHazardValid(const ObjectGuid& hazzardGuid)
 {
     if (hazzardGuid.IsGameObject())
     {
-        return ai->GetGameObject(hazzardGuid) != nullptr;
+        GameObject* hazard = ai->GetGameObject(hazzardGuid);
+        return hazard && bot->IsInMap(hazard) && hazard->IsSpawned();
     }
     else if (hazzardGuid.IsCreature())
     {
-        return ai->GetCreature(hazzardGuid) != nullptr;
+        Creature* hazard = ai->GetCreature(hazzardGuid);
+        return hazard && bot->IsInMap(hazard) && hazard->IsAlive();
     }
 
     return false;
@@ -187,7 +306,7 @@ std::list<ObjectGuid> CloseToCreatureHazardTrigger::GetPossibleHazards()
 bool CloseToCreatureHazardTrigger::IsHazardValid(const ObjectGuid& hazzardGuid)
 {
     Creature* creatureHazard = ai->GetCreature(hazzardGuid);
-    if (creatureHazard)
+    if (creatureHazard && bot->IsInMap(creatureHazard) && creatureHazard->IsAlive())
     {
         // Check if the creature is not targeting the bot
         if (!creatureHazard->GetVictim() || (creatureHazard->GetVictim()->GetObjectGuid() != bot->GetObjectGuid()))

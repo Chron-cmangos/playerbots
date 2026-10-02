@@ -1,9 +1,32 @@
+#include "playerbot/strategy/MeleeCombatPolicy.h"
 
 #include "playerbot/playerbot.h"
 #include "DKActions.h"
 
 
 using namespace ai;
+
+bool CastPestilenceAction::isUseful()
+{
+#ifdef MANGOSBOT_TWO
+    if (!CastSpellAction::isUseful()) return false;
+    Unit* source = GetTarget();
+    if (!MeleeCombatTarget(ai, source) || SafeMeleeTargetCount(ai, 10.0f, source) == 0) return false;
+    Aura* plague = ai->GetAura(55078, source, true);
+    Aura* fever = ai->GetAura(55095, source, true);
+    if (!plague && !fever) return false;
+    if (bot->HasAura(63334) && ((plague && plague->GetHolder()->GetAuraDuration() < 3000) ||
+        (fever && fever->GetHolder()->GetAuraDuration() < 3000))) return true;
+    for (const auto& guid : AI_VALUE(std::list<ObjectGuid>, "possible attack targets"))
+    {
+        Unit* target = ai->GetUnit(guid);
+        if (!target || target == source || !target->IsInWorld() || target->GetMap() != bot->GetMap() ||
+            !target->IsAlive() || source->GetDistance(target) > 10.0f) continue;
+        if ((plague && !ai->GetAura(55078, target, true)) || (fever && !ai->GetAura(55095, target, true))) return true;
+    }
+#endif
+    return false;
+}
 
 bool CastRaiseDeadAction::isPossible()
 {
@@ -78,15 +101,24 @@ bool RuneforgeAction::Execute(Event& event)
         runeforgeSpellId = chat->parseSpell(text);
 
         if(!runeforgeSpellId)
+        {
             ai->TellPlayerNoFacing(requester, text + " is not a [spelllink].", PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, false);
+            return false;
+        }
 
         std::vector<uint32> available = AI_VALUE(std::vector<uint32>, "runeforge spells");
 
         if(std::find(available.begin(), available.end(), runeforgeSpellId) == available.end())
+        {
             ai->TellPlayerNoFacing(requester, text + " is not a known runeforgespell.", PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, false);
+            return false;
+        }
     }
     else
         runeforgeSpellId = AI_VALUE(uint32, "best runeforge spell");
+
+    if (!runeforgeSpellId || !sServerFacade.LookupSpellInfo(runeforgeSpellId) || !bot->HasSpell(runeforgeSpellId))
+        return false;
 
     WorldPosition botLocation(bot);
     GameObject* runeforge = nullptr;
@@ -112,6 +144,8 @@ bool RuneforgeAction::Execute(Event& event)
     if (runeforge && closestDistance <= INTERACTION_DISTANCE)
     {
         Item* weapon = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_MAINHAND);
+        if (!weapon)
+            return false;
         
 
         uint32 spellDuration = sPlayerbotAIConfig.globalCoolDown;

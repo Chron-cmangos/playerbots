@@ -597,7 +597,7 @@ void ProtectionPaladinStrategy::InitCombatTriggers(std::list<TriggerNode*>& trig
 
     triggers.push_back(new TriggerNode(
         "seal",
-        NextAction::array(0, new NextAction("prot seal", ACTION_NORMAL + 2), NULL)));
+        NextAction::array(0, new NextAction("seal of vengeance", ACTION_NORMAL + 2), NULL)));
 
     triggers.push_back(new TriggerNode(
         "judgement",
@@ -1085,6 +1085,10 @@ NextAction** ProtectionPaladinStrategy::GetDefaultCombatActions()
 void ProtectionPaladinStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     PaladinStrategy::InitCombatTriggers(triggers);
+
+    triggers.push_back(new TriggerNode(
+        "shield of righteousness",
+        NextAction::array(0, new NextAction("shield of righteousness", ACTION_NORMAL + 4), NULL)));
 
     triggers.push_back(new TriggerNode(
         "lose aggro",

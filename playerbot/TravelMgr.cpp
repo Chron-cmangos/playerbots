@@ -11,6 +11,21 @@
 #include "Globals/ObjectAccessor.h"
 
 using namespace ai;
+
+TravelMgr::CacheStats TravelMgr::GetCacheStats() const
+{
+    CacheStats stats;
+    for (auto const& purpose : destinationMap)
+        for (auto const& entry : purpose.second)
+            stats.destinations += entry.second.size();
+    stats.points = pointsMap.size();
+    stats.fishPoints = fishPoints.size();
+    stats.areaLevels = areaLevels.size();
+    stats.badMmaps = badMmap.size();
+    for (auto const& transfer : mapTransfersMap)
+        stats.mapTransfers += transfer.second.size();
+    return stats;
+}
 using namespace MaNGOS;
 
 PlayerTravelInfo::PlayerTravelInfo(Player* player)
@@ -1298,7 +1313,7 @@ void TravelMgr::SetMobAvoidAreaMap(uint32 mapId)
     }
 }
 
-void TravelMgr::LoadQuestTravelTable()
+void TravelMgr::LoadQuestTravelTable(bool includeQuests)
 {
     if (!sTravelMgr.destinationMap.empty())
         return;
@@ -1316,7 +1331,9 @@ void TravelMgr::LoadQuestTravelTable()
 
     sLog.outString("Finding possible travel destinations.");
 
-    EntryQuestRelationMap eMap = GAI_VALUE(EntryQuestRelationMap, "entry quest relation");
+    EntryQuestRelationMap eMap;
+    if (includeQuests)
+        eMap = GAI_VALUE(EntryQuestRelationMap, "entry quest relation");
 
     sLog.outString("Creating travel destinations.");
 

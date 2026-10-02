@@ -20,7 +20,6 @@
 #include "CommandQuest.h"
 #include "CleanupParty.h"
 #include "RequireState.h"
-#include "TeleportTests.h"
 
 #include <sstream>
 #include <fstream>
@@ -50,8 +49,6 @@ void TestAction::RegisterCommands()
     commands.push_back(std::make_unique<CommandSetupTeleport>());
     commands.push_back(std::make_unique<CommandSetupGM>());
     commands.push_back(std::make_unique<CommandSetupSetDestination>());
-    commands.push_back(std::make_unique<CommandRequireCreatureAlive>());
-    commands.push_back(std::make_unique<CommandSetupRpgTarget>());
     commands.push_back(std::make_unique<CommandSetupPull>());
     commands.push_back(std::make_unique<CommandSetupGiveItem>());
     commands.push_back(std::make_unique<CommandSetupEquipItem>());
@@ -62,8 +59,8 @@ void TestAction::RegisterCommands()
     commands.push_back(std::make_unique<CommandPartySpawnGroup>());
     commands.push_back(std::make_unique<CommandFlowObserve>());
     commands.push_back(std::make_unique<CommandFlowMonitor>());
-    commands.push_back(std::make_unique<CommandFlowWaitDestination>());
     commands.push_back(std::make_unique<CommandFlowWait>());
+    commands.push_back(std::make_unique<CommandFlowWaitDestination>());
     commands.push_back(std::make_unique<CommandFlowRepeat>());
     commands.push_back(std::make_unique<CommandSetValue>());
     commands.push_back(std::make_unique<CommandDebug>());
@@ -72,14 +69,7 @@ void TestAction::RegisterCommands()
     commands.push_back(std::make_unique<CommandSetupAcceptQuest>());
     commands.push_back(std::make_unique<CommandSetupForceCompleteQuest>());
     commands.push_back(std::make_unique<CommandSetupRewardQuest>());
-    commands.push_back(std::make_unique<CommandSetupForceObjectives>());
     commands.push_back(std::make_unique<CommandSetupDo>());
-    commands.push_back(std::make_unique<CommandSummonRequest>());
-    commands.push_back(std::make_unique<CommandResurrectRequest>());
-    commands.push_back(std::make_unique<CommandKillSpawn>());
-    commands.push_back(std::make_unique<CommandMoveSpawn>());
-    commands.push_back(std::make_unique<CommandEngageSpawn>());
-    commands.push_back(std::make_unique<CommandHideSpawn>());
 }
 
 void TestAction::RegisterMonitors()
@@ -95,11 +85,9 @@ void TestAction::RegisterMonitors()
     monitors.push_back(std::make_unique<MonitorMovementSpawnDistance>());
     monitors.push_back(std::make_unique<MonitorCombatMob>());
     monitors.push_back(std::make_unique<MonitorCombatDeadMobs>());
-    monitors.push_back(std::make_unique<MonitorCombatPartyXp>());
     monitors.push_back(std::make_unique<MonitorCombatPartyWiped>());
     monitors.push_back(std::make_unique<MonitorStateFaction>());
     monitors.push_back(std::make_unique<MonitorStateGroupSize>());
-    monitors.push_back(std::make_unique<MonitorStateGroupOnMap>());
     monitors.push_back(std::make_unique<MonitorStateLootGuid>());
     monitors.push_back(std::make_unique<MonitorStateStarterGearCount>());
     monitors.push_back(std::make_unique<MonitorStateEquipQuality>());
@@ -113,10 +101,6 @@ void TestAction::RegisterMonitors()
     monitors.push_back(std::make_unique<MonitorHasItem>());
     monitors.push_back(std::make_unique<MonitorOnMap>());
     monitors.push_back(std::make_unique<MonitorHasMount>());
-    monitors.push_back(std::make_unique<MonitorSpawnOnMap>());
-    monitors.push_back(std::make_unique<MonitorSpawnAlive>());
-    monitors.push_back(std::make_unique<MonitorSpawnResurrected>());
-    monitors.push_back(std::make_unique<MonitorSpawnDead>());
 }
 
 bool TestAction::Execute(Event& event)
@@ -206,21 +190,6 @@ bool TestAction::Execute(Event& event)
 
     if (ctx.observing)
     {
-        // Re-anchor the start position when the test moves the bot to another map (the instance tests
-        // teleport after the baseline was taken at the spawn city) so "distance traveled/wanted" in
-        // timeout messages measures the in-instance anchor instead of a cross-map artifact.
-        if (bot->IsInWorld() && ctx.testStartPosition && bot->GetMapId() != ctx.testStartPosition.getMapId())
-            ctx.testStartPosition = WorldPosition(bot);
-
-        // Capture the party-XP baseline here rather than at test start: the script may still level the
-        // host ("require bot is level") and form the party before observation begins, and both would
-        // count as "gained xp" against a start-of-test baseline.
-        if (!ctx.partyXpCaptured)
-        {
-            ctx.partyXpStart = GetPartyXpTotal(bot);
-            ctx.partyXpCaptured = true;
-        }
-
         bossFocusMgr->Update();
         CheckMonitors();
         if (ctx.result != TestResult::PENDING)
@@ -240,8 +209,8 @@ bool TestAction::Execute(Event& event)
     std::string message;
     TestResult commandResult = ExecuteCommand(ctx.script[ctx.pc], message);
 
-    // Log command execution for scenario and quest tests
-    if (ctx.testName.find("scenario_") == 0 || ctx.testName.find("quest_") == 0)
+    // Log command execution for boss tests
+    if (ctx.testName.find("scenario_boss") != std::string::npos)
     {
         std::string result = (commandResult == TestResult::PASS ? "PASS" :
                 commandResult == TestResult::FAIL               ? "FAIL" :
@@ -311,15 +280,15 @@ TestResult TestAction::ExecuteCommand(const std::string& line, std::string& mess
 }
 
 void TestAction::RunCleanup()
-{
+{   
     for (size_t i = static_cast<size_t>(std::max(0, ctx.pc)); i < ctx.script.size(); ++i)
     {
-        if (ctx.script[i].find("cleanup ") != 0)
+        std::string message;
+
+        if (!dynamic_cast<TestCleanup*>(commands[i].get()))
             continue;
 
-        std::string message;
-        TestResult commandResult = ExecuteCommand(ctx.script[i].substr(8), message);
-        (void)commandResult;
+        TestResult commandResult = ExecuteCommand(ctx.script[ctx.pc], message);        
     }
 }
 

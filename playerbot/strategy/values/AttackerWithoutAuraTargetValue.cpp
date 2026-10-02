@@ -19,7 +19,7 @@ ObjectGuid AttackerWithoutAuraTargetValue::Calculate()
         if (bot->GetDistance(unit) > ai->GetRange("spell"))
             continue;
 
-        if (!ai->HasAura(qualifier, unit))
+        if (!ai->HasAura(qualifier, unit, false, owned))
             return unit->GetObjectGuid();
     }
 

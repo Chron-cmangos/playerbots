@@ -26,7 +26,7 @@ bool InfernoTrigger::IsActive()
 bool CorruptionTrigger::IsActive()
 {
 	Unit* target = GetTarget();
-	return target && !ai->HasAura("corruption", target) && !ai->HasAura("seed of corruption", target) && !HasMaxDebuffs();
+    return target && !ai->HasAura("corruption", target, false, true) && !ai->HasAura("seed of corruption", target, false, true) && !HasMaxDebuffs();
 }
 
 bool LifeTapTrigger::IsActive()
@@ -46,6 +46,13 @@ bool LifeTapTrigger::IsActive()
 
 bool DrainSoulTrigger::IsActive()
 {
+#ifdef MANGOSBOT_TWO
+    // Execute damage is independent of shard farming and item cheats.
+    Unit* target = ai->GetUnit(AI_VALUE(ObjectGuid, "current target"));
+    if (ai->HasStrategy("affliction", BotState::BOT_STATE_COMBAT) && MeleeCombatTarget(ai, target) && target->GetHealthPercent() <= 25.0f)
+        return true;
+#endif
+
 	// If no item cheats enabled
     if (!ai->HasCheat(BotCheatMask::item))
     {
@@ -99,7 +106,8 @@ bool NoCurseTrigger::IsActive()
 			   !ai->HasAura("curse of shadow", target, false, true) &&
 			   !ai->HasAura("curse of the elements", target, false, true) &&
 			   !ai->HasAura("curse of weakness", target, false, true) &&
-			   !ai->HasAura("curse of tongues", target, false, true);
+               !ai->HasAura("curse of tongues", target, false, true) &&
+                   !ai->HasAura("curse of exhaustion", target, false, true);
 	}
 
 	return false;
@@ -120,7 +128,8 @@ bool NoCurseOnAttackerTrigger::IsActive()
 				!ai->HasAura("curse of shadow", attacker, false, true) &&
 				!ai->HasAura("curse of the elements", attacker, false, true) &&
 				!ai->HasAura("curse of weakness", attacker, false, true) &&
-				!ai->HasAura("curse of tongues", attacker, false, true))
+                !ai->HasAura("curse of tongues", attacker, false, true) &&
+                   !ai->HasAura("curse of exhaustion", attacker, false, true))
 			{
 				return true;
 			}
@@ -177,7 +186,11 @@ bool ConflagrateTrigger::IsActive()
 		if (aura)
 		{
 			// Check if immolate is about to expire
-			if (aura->GetAuraDuration() <= 7000)
+            if (
+#ifdef MANGOSBOT_TWO
+                bot->HasAura(56235) || // Native Glyph of Conflagrate preserves Immolate.
+#endif
+                aura->GetAuraDuration() <= 7000)
 			{
 				return true;
 			}

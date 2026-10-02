@@ -12,7 +12,7 @@ namespace ai
     DEBUFF_TRIGGER(DisarmDebuffTrigger, "disarm");
     DEBUFF_TRIGGER_A(SunderArmorDebuffTrigger, "sunder armor");
     DEBUFF_TRIGGER(DemoralizingShoutDebuffTrigger, "demoralizing shout");
-    DEBUFF_TRIGGER(MortalStrikeDebuffTrigger, "mortal strike");
+    CAN_CAST_TRIGGER(MortalStrikeDebuffTrigger, "mortal strike");
     DEBUFF_ENEMY_TRIGGER(RendDebuffOnAttackerTrigger, "rend");
     CAN_CAST_TRIGGER(DevastateAvailableTrigger, "devastate");
     CAN_CAST_TRIGGER(RevengeAvailableTrigger, "revenge");
@@ -20,7 +20,7 @@ namespace ai
     BUFF_TRIGGER(RampageAvailableTrigger, "rampage");
     BUFF_TRIGGER_A(BloodrageBuffTrigger, "bloodrage");
     CAN_CAST_TRIGGER(VictoryRushTrigger, "victory rush");
-    HAS_AURA_TRIGGER(SwordAndBoardTrigger, "sword and board");
+    HAS_AURA_TRIGGER_A(SwordAndBoardTrigger, "sword and board");
     SNARE_TRIGGER(ConcussionBlowTrigger, "concussion blow");
     SNARE_TRIGGER(HamstringTrigger, "hamstring");
     SNARE_TRIGGER(MockingBlowTrigger, "mocking blow");
@@ -40,9 +40,9 @@ namespace ai
     INTERRUPT_HEALER_TRIGGER(InterceptInterruptEnemyHealerSpellTrigger, "intercept");
     INTERRUPT_TRIGGER(InterceptInterruptSpellTrigger, "intercept");
     DEFLECT_TRIGGER(SpellReflectionTrigger, "spell reflection");
-    HAS_AURA_TRIGGER(SuddenDeathTrigger, "sudden death");
+    HAS_AURA_TRIGGER_A(SuddenDeathTrigger, "sudden death");
     HAS_AURA_TRIGGER(SlamInstantTrigger, "slam!");
-    HAS_AURA_TRIGGER(TasteForBloodTrigger, "taste for blood");
+    HAS_AURA_TRIGGER_A(TasteForBloodTrigger, "taste for blood");
 
     class BattleShoutTrigger : public Trigger
     {

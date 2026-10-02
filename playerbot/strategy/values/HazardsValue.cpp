@@ -3,6 +3,7 @@
 #include "HazardsValue.h"
 #include "playerbot/strategy/AiObjectContext.h"
 #include "MotionGenerators/PathFinder.h"
+#include "Entities/GameObject.h"
 
 using namespace ai;
 
@@ -66,7 +67,7 @@ bool Hazard::GetPosition(PlayerbotAI* ai, WorldPosition& outPosition)
         outPosition = position = WorldPosition(object);
         return true;
     }
-    else if(position)
+    else if (guid.IsEmpty() && position)
     {
         outPosition = position;
         return true;
@@ -82,8 +83,17 @@ bool Hazard::IsExpired() const
 
 bool Hazard::IsValid(PlayerbotAI* ai) const
 {
+    if (IsExpired()) return false;
+    if (guid.IsEmpty()) return bool(position);
     const WorldObject* object = GetObject(ai);
-    return (object || position) && !IsExpired();
+    // Object hazards end with the object. Its remembered coordinates must not
+    // turn a despawned void zone into a permanent invisible obstacle. Native
+    // map membership also excludes another phase in cores supporting phases.
+    if (!object || !ai->GetBot()->IsInMap(object)) return false;
+    if (object->GetTypeId() == TYPEID_GAMEOBJECT)
+        return static_cast<const GameObject*>(object)->IsSpawned();
+    if (object->IsUnit()) return static_cast<const Unit*>(object)->IsAlive();
+    return true;
 }
 
 const WorldObject* Hazard::GetObject(PlayerbotAI* ai) const
@@ -97,6 +107,11 @@ const WorldObject* Hazard::GetObject(PlayerbotAI* ai) const
         else if (guid.IsGameObject())
         {
             return ai->GetGameObject(guid);
+        }
+        else if (guid.IsDynamicObject())
+        {
+            Player* bot = ai->GetBot();
+            return bot->IsInWorld() ? bot->GetMap()->GetDynamicObject(guid) : nullptr;
         }
     }
 
@@ -158,5 +173,7 @@ std::list<HazardPosition> HazardsValue::Calculate()
         SET_AI_VALUE(std::list<Hazard>, "stored hazards", storedHazards);
     }
 
+    AppendVashjStriderHazards(ai, hazards);
+    AppendNativeEncounterActorHazards(ai, hazards);
     return hazards;
 }

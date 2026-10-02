@@ -1,10 +1,14 @@
+#include "playerbot/strategy/MeleeCombatPolicy.h"
 
 #include "playerbot/playerbot.h"
+#include "playerbot/strategy/generic/PullStrategy.h"
+#include "playerbot/strategy/warrior/WarriorCombatPolicy.h"
 #include "GenericTriggers.h"
 #include "playerbot/LootObjectStack.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/strategy/values/PositionValue.h"
 #include "playerbot/strategy/values/AoeValues.h"
+#include "playerbot/strategy/actions/EncounterSpellPolicy.h"
 
 #include <regex>
 
@@ -64,7 +68,7 @@ bool LoseAggroTrigger::IsActive()
                 if(targetsTarget && targetsTarget->IsPlayer())
                 {
                     Player* targetsPlayerTarget = (Player*)targetsTarget;
-                    return !ai->IsTank(targetsPlayerTarget);
+                    return !ai->IsTank(targetsPlayerTarget) || ShouldSwapEncounterTank(ai, target);
                 }
             }
         }
@@ -181,7 +185,7 @@ ai::Value<ObjectGuid>* BuffOnTankTrigger::GetTargetValue()
 
 Value<ObjectGuid>* DebuffOnAttackerTrigger::GetTargetValue()
 {
-	return context->GetValue<ObjectGuid>("attacker without aura", spell);
+    return context->GetValue<ObjectGuid>(CasterPersonalDot(spell) ? "attacker without my aura" : "attacker without aura", spell);
 }
 
 bool NoAttackersTrigger::IsActive()
@@ -261,6 +265,8 @@ bool NoThreatTrigger::IsActive()
 
 bool AoeTrigger::IsActive()
 {
+    if (range <= 5.0f)
+        return SafeMeleeTargetCount(ai, range) >= amount;
     std::list<ObjectGuid> aoeEnemies = AoeCountValue::FindMaxDensity(bot, range);
     return aoeEnemies.size() >= amount;
 }
@@ -305,10 +311,26 @@ bool SpellTrigger::IsActive()
 	return GetTarget();
 }
 
+bool TankThreatTransferTrigger::IsActive()
+{
+    if (!bot->IsInWorld() || !bot->IsInCombat() || !bot->GetGroup()) return false;
+    const char* key = nullptr;
+#ifndef MANGOSBOT_ZERO
+    if (bot->getClass() == CLASS_HUNTER) key = "misdirection on party tank";
+#endif
+#ifdef MANGOSBOT_TWO
+    if (bot->getClass() == CLASS_ROGUE) key = "tricks of the trade";
+#endif
+    Action* action = key ? ai->GetAiObjectContext()->GetAction(key) : nullptr;
+    return action && action->isUseful() && action->isPossible();
+}
+
 bool SpellCanBeCastedTrigger::IsActive()
 {
-	Unit* target = GetTarget();
-	return target && ai->CanCastSpell(spell, target, true);
+    Unit* target = GetTarget();
+    if (bot->getClass() == CLASS_WARRIOR)
+        return CanPlanWarriorSpell(ai, spell, target);
+    return target && ai->CanCastSpell(spell, target, 0);
 }
 
 bool SpellNoCooldownTrigger::IsActive()
@@ -412,6 +434,10 @@ std::string TwoTriggers::getName()
 
 bool BoostTrigger::IsActive()
 {
+    const uint32 spellId = AI_VALUE2(uint32, "spell id", spell);
+    if (!spellId || !ai->HasSpell(spellId) || !bot->IsSpellReady(spellId))
+        return false;
+
     if (ai->IsStateActive(BotState::BOT_STATE_COMBAT) && BuffTrigger::IsActive())
     {
         if (!ai->HasRealPlayerMaster())
@@ -420,24 +446,7 @@ bool BoostTrigger::IsActive()
         }
         else
         {
-            uint32 spellId = AI_VALUE2(uint32, "spell id", spell);
-            SpellEntry const* spellInfo = sServerFacade.LookupSpellInfo(spellId);
-            // in instances, save long cd boosts for bosses
-            if ((bot->GetMap()->IsRaid() || bot->GetMap()->IsDungeon()) && spellInfo && spellInfo->RecoveryTime >= 5 * MINUTE * IN_MILLISECONDS)
-            {
-                std::list<ObjectGuid> v = context->GetValue<std::list<ObjectGuid>>("possible attack targets")->Get();
-                for (std::list<ObjectGuid>::iterator i = v.begin(); i!=v.end(); i++)
-                {
-                    Unit* unit = ai->GetUnit(*i);
-                    if (!unit || !sServerFacade.IsAlive(unit) || unit->IsPlayer())
-                        continue;
-
-                    if (sObjectMgr.IsEncounter(unit->GetEntry(), unit->GetMapId()))
-                        return true;
-                }
-            }
-            else
-                return true;
+            return true;
         }
     }
 
@@ -590,7 +599,7 @@ bool TankAssistTrigger::IsActive()
     Unit* enemy = ai->GetUnit(AI_VALUE(ObjectGuid, "enemy player target"));
     if (enemy)
     {
-        return currentTarget != enemy;
+        return false; // Enemy-player actions own this switch; tank target is a different value.
     }
 
     Unit* tankTarget = ai->GetUnit(AI_VALUE(ObjectGuid, "tank target"));
@@ -606,30 +615,24 @@ bool TankAssistTrigger::IsActive()
 
 bool DpsAssistTrigger::IsActive()
 {
-    if (!AI_VALUE(bool, "has attackers"))
-        return false;
-
+    if (!AI_VALUE(bool, "has attackers")) return false;
     Unit* currentTarget = ai->GetUnit(AI_VALUE(ObjectGuid, "current target"));
-    if (!currentTarget)
-        return false;
+    // PvP selection has its own actions; a PvE assist must not keep replacing it.
+    if ((currentTarget && currentTarget->IsPlayer()) || ai->GetUnit(AI_VALUE(ObjectGuid, "enemy player target"))) return false;
+    Unit* target = ai->GetUnit(AI_VALUE(ObjectGuid, "dps target"));
+    if (!target) return false;
+    if (target != currentTarget) return true;
+    if (WaitForAttackStrategy* strategy = WaitForAttackStrategy::Get(ai))
+        if (strategy->ShouldWait(ai)) return false;
+    if (ai->HasStrategy("stealthed", BotState::BOT_STATE_COMBAT)) return false;
+    if (bot->GetVictim() != target) return true;
 
-    // If owner is waiting this will trigger attack again to call for pet
-    WaitForAttackStrategy* strategy = WaitForAttackStrategy::Get(ai);
-    bool isWaitingForAttack = false;
-    if (strategy)
-        isWaitingForAttack = strategy->ShouldWait(ai); 
-        
+    // Reissue only when the pet actually needs the order (including after the
+    // tank-opening wait), not every two seconds while already fighting.
     Pet* pet = bot->GetPet();
-    if (pet)
-    {
-        UnitAI* creatureAI = ((Creature*)pet)->AI();
-        if (creatureAI)
-        {
-            if (isWaitingForAttack)
-                return false;
-        }
-    }
-
+    if (!pet || !pet->IsAlive() || pet->GetVictim() == target) return false;
+    if (bot->getClass() == CLASS_WARLOCK && pet->GetEntry() == 416 && pet->HasAura(4511) &&
+        pet->AI() && pet->AI()->HasReactState(REACT_PASSIVE)) return false;
     return true;
 }
 
@@ -693,7 +696,7 @@ bool NotDpsTargetActiveTrigger::IsActive()
             Unit* enemy = ai->GetUnit(AI_VALUE(ObjectGuid, "enemy player target"));
             if (enemy)
             {
-                return target != enemy;
+                return false; // Do not trigger a PvE assist to select a PvP target.
             }
 
             Unit* dps = ai->GetUnit(AI_VALUE(ObjectGuid, "dps target"));
@@ -723,7 +726,7 @@ bool NotDpsAoeTargetActiveTrigger::IsActive()
             Unit* enemy = ai->GetUnit(AI_VALUE(ObjectGuid, "enemy player target"));
             if (enemy)
             {
-                return target != enemy;
+                return false; // Do not trigger a PvE assist to select a PvP target.
             }
 
             Unit* dps = ai->GetUnit(AI_VALUE(ObjectGuid, "dps aoe target"));
@@ -759,8 +762,8 @@ bool HasItemForSpellTrigger::IsActive()
 bool TargetChangedTrigger::IsActive()
 {
     PlayerbotAI* ai = bot->GetPlayerbotAI();
-    Unit* oldTarget = ai->GetUnit(context->GetValue<ObjectGuid>("old target")->Get());
-    Unit* target = ai->GetUnit(context->GetValue<ObjectGuid>("current target")->Get());
+    Unit* oldTarget = ai->GetUnit(ai->GetAiObjectContext()->GetValue<ObjectGuid>("old target")->Get());
+    Unit* target = ai->GetUnit(ai->GetAiObjectContext()->GetValue<ObjectGuid>("current target")->Get());
     return target && oldTarget != target;
 }
 
@@ -824,6 +827,8 @@ bool ReturnToStayPositionTrigger::IsActive()
 
 bool ReturnToPullPositionTrigger::IsActive()
 {
+    const PullStrategy* strategy = PullStrategy::Get(ai);
+    if (!strategy || !strategy->HasPullActionIssued() || bot->IsNonMeleeSpellCasted(true)) return false;
     PositionEntry pullPosition = AI_VALUE(PositionMap&, "position")["pull"];
     if (pullPosition.isSet())
     {
@@ -1000,6 +1005,8 @@ bool SpellTargetTrigger::IsActive()
 bool SpellTargetTrigger::IsTargetValid(Unit* target)
 {
     return target &&
+           bot->IsInMap(target) &&
+           sServerFacade.IsFriendlyTo(bot, target) &&
            ai->IsSafe(target) &&
            (bot == target || sServerFacade.GetDistance2d(bot, target) < sPlayerbotAIConfig.sightDistance) &&
            (bot->IsInGroup(target)) &&

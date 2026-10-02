@@ -33,6 +33,16 @@ ai::NextAction** DemonologyWarlockStrategy::GetDefaultCombatActions()
 void DemonologyWarlockStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     WarlockStrategy::InitCombatTriggers(triggers);
+
+#ifdef MANGOSBOT_TWO
+
+    triggers.push_back(new TriggerNode("caster decimation", NextAction::array(0, new NextAction("soul fire", ACTION_HIGH + 2), nullptr)));
+#endif
+
+#ifdef MANGOSBOT_TWO
+
+    triggers.push_back(new TriggerNode("caster molten core", NextAction::array(0, new NextAction("incinerate", ACTION_HIGH + 1), nullptr)));
+#endif
 }
 
 void DemonologyWarlockStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -125,6 +135,16 @@ void DemonologyWarlockRaidStrategy::InitDeadTriggers(std::list<TriggerNode*>& tr
 void DemonologyWarlockAoeStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     WarlockAoeStrategy::InitCombatTriggers(triggers);
+
+#ifdef MANGOSBOT_TWO
+
+    triggers.push_back(new TriggerNode("immolation aura", NextAction::array(0, new NextAction("immolation aura", ACTION_HIGH + 3), nullptr)));
+#endif
+
+#ifdef MANGOSBOT_TWO
+
+    triggers.push_back(new TriggerNode("shadow cleave", NextAction::array(0, new NextAction("shadow cleave", ACTION_HIGH + 3), nullptr)));
+#endif
 }
 
 void DemonologyWarlockAoeStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -225,6 +245,11 @@ void DemonologyWarlockBuffRaidStrategy::InitNonCombatTriggers(std::list<TriggerN
 void DemonologyWarlockBoostStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     WarlockBoostStrategy::InitCombatTriggers(triggers);
+
+#ifdef MANGOSBOT_TWO
+
+    triggers.push_back(new TriggerNode("demonic empowerment", NextAction::array(0, new NextAction("demonic empowerment", ACTION_HIGH + 2), nullptr)));
+#endif
 }
 
 void DemonologyWarlockBoostStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -294,6 +319,11 @@ void DemonologyWarlockCcPvpStrategy::InitCombatTriggers(std::list<TriggerNode*>&
 {
     DemonologyWarlockCcStrategy::InitCombatTriggers(triggers);
     WarlockCcPvpStrategy::InitCombatTriggers(triggers);
+
+#ifdef MANGOSBOT_TWO
+
+    triggers.push_back(new TriggerNode("demon charge", NextAction::array(0, new NextAction("demon charge", ACTION_INTERRUPT), nullptr)));
+#endif
 }
 
 void DemonologyWarlockCcPvpStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -396,6 +426,16 @@ ai::NextAction** DemonologyWarlockStrategy::GetDefaultCombatActions()
 void DemonologyWarlockStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     WarlockStrategy::InitCombatTriggers(triggers);
+
+#ifdef MANGOSBOT_TWO
+
+    triggers.push_back(new TriggerNode("caster decimation", NextAction::array(0, new NextAction("soul fire", ACTION_HIGH + 2), nullptr)));
+#endif
+
+#ifdef MANGOSBOT_TWO
+
+    triggers.push_back(new TriggerNode("caster molten core", NextAction::array(0, new NextAction("incinerate", ACTION_HIGH + 1), nullptr)));
+#endif
 }
 
 void DemonologyWarlockStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -488,6 +528,16 @@ void DemonologyWarlockRaidStrategy::InitDeadTriggers(std::list<TriggerNode*>& tr
 void DemonologyWarlockAoeStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     WarlockAoeStrategy::InitCombatTriggers(triggers);
+
+#ifdef MANGOSBOT_TWO
+
+    triggers.push_back(new TriggerNode("immolation aura", NextAction::array(0, new NextAction("immolation aura", ACTION_HIGH + 3), nullptr)));
+#endif
+
+#ifdef MANGOSBOT_TWO
+
+    triggers.push_back(new TriggerNode("shadow cleave", NextAction::array(0, new NextAction("shadow cleave", ACTION_HIGH + 3), nullptr)));
+#endif
 }
 
 void DemonologyWarlockAoeStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -590,6 +640,11 @@ void DemonologyWarlockBuffRaidStrategy::InitNonCombatTriggers(std::list<TriggerN
 void DemonologyWarlockBoostStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     WarlockBoostStrategy::InitCombatTriggers(triggers);
+
+#ifdef MANGOSBOT_TWO
+
+    triggers.push_back(new TriggerNode("demonic empowerment", NextAction::array(0, new NextAction("demonic empowerment", ACTION_HIGH + 2), nullptr)));
+#endif
 }
 
 void DemonologyWarlockBoostStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -659,6 +714,11 @@ void DemonologyWarlockCcPvpStrategy::InitCombatTriggers(std::list<TriggerNode*>&
 {
     DemonologyWarlockCcStrategy::InitCombatTriggers(triggers);
     WarlockCcPvpStrategy::InitCombatTriggers(triggers);
+
+#ifdef MANGOSBOT_TWO
+
+    triggers.push_back(new TriggerNode("demon charge", NextAction::array(0, new NextAction("demon charge", ACTION_INTERRUPT), nullptr)));
+#endif
 }
 
 void DemonologyWarlockCcPvpStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -769,6 +829,16 @@ ai::NextAction** DemonologyWarlockStrategy::GetDefaultCombatActions()
 void DemonologyWarlockStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     WarlockStrategy::InitCombatTriggers(triggers);
+
+#ifdef MANGOSBOT_TWO
+
+    triggers.push_back(new TriggerNode("caster decimation", NextAction::array(0, new NextAction("soul fire", ACTION_HIGH + 2), nullptr)));
+#endif
+
+#ifdef MANGOSBOT_TWO
+
+    triggers.push_back(new TriggerNode("caster molten core", NextAction::array(0, new NextAction("incinerate", ACTION_HIGH + 1), nullptr)));
+#endif
 }
 
 void DemonologyWarlockStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -861,6 +931,16 @@ void DemonologyWarlockRaidStrategy::InitDeadTriggers(std::list<TriggerNode*>& tr
 void DemonologyWarlockAoeStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     WarlockAoeStrategy::InitCombatTriggers(triggers);
+
+#ifdef MANGOSBOT_TWO
+
+    triggers.push_back(new TriggerNode("immolation aura", NextAction::array(0, new NextAction("immolation aura", ACTION_HIGH + 3), nullptr)));
+#endif
+
+#ifdef MANGOSBOT_TWO
+
+    triggers.push_back(new TriggerNode("shadow cleave", NextAction::array(0, new NextAction("shadow cleave", ACTION_HIGH + 3), nullptr)));
+#endif
 }
 
 void DemonologyWarlockAoeStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -948,15 +1028,19 @@ void DemonologyWarlockBuffRaidStrategy::InitNonCombatTriggers(std::list<TriggerN
 {
     DemonologyWarlockBuffStrategy::InitNonCombatTriggers(triggers);
     WarlockBuffRaidStrategy::InitNonCombatTriggers(triggers);
-
-    triggers.push_back(new TriggerNode(
-        "demonic sacrifice",
-        NextAction::array(0, new NextAction("demonic sacrifice raid", ACTION_HIGH), NULL)));
 }
 
 void DemonologyWarlockBoostStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     WarlockBoostStrategy::InitCombatTriggers(triggers);
+    triggers.push_back(new TriggerNode(
+        "metamorphosis",
+        NextAction::array(0, new NextAction("metamorphosis", ACTION_HIGH + 3), NULL)));
+
+#ifdef MANGOSBOT_TWO
+
+    triggers.push_back(new TriggerNode("demonic empowerment", NextAction::array(0, new NextAction("demonic empowerment", ACTION_HIGH + 2), nullptr)));
+#endif
 }
 
 void DemonologyWarlockBoostStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -1026,6 +1110,11 @@ void DemonologyWarlockCcPvpStrategy::InitCombatTriggers(std::list<TriggerNode*>&
 {
     DemonologyWarlockCcStrategy::InitCombatTriggers(triggers);
     WarlockCcPvpStrategy::InitCombatTriggers(triggers);
+
+#ifdef MANGOSBOT_TWO
+
+    triggers.push_back(new TriggerNode("demon charge", NextAction::array(0, new NextAction("demon charge", ACTION_INTERRUPT), nullptr)));
+#endif
 }
 
 void DemonologyWarlockCcPvpStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -1096,10 +1185,12 @@ void DemonologyWarlockPetRaidStrategy::InitCombatTriggers(std::list<TriggerNode*
 
 void DemonologyWarlockPetRaidStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
 {
-    /* NO PET BECAUSE OF DEMONIC SACRIFICE
+    // Wrath removed Demonic Sacrifice; keep the normal pet maintenance.
     DemonologyWarlockPetStrategy::InitNonCombatTriggers(triggers);
     WarlockPetRaidStrategy::InitNonCombatTriggers(triggers);
-    */
+    triggers.push_back(new TriggerNode(
+        "no pet",
+        NextAction::array(0, new NextAction("summon felguard", ACTION_NORMAL + 2), NULL)));
 }
 
 void DemonologyWarlockCursesStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)

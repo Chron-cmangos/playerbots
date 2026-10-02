@@ -1,3 +1,4 @@
+#include "Util/DevDiagnostics.h"
 #pragma once
 #include "Action.h"
 #include "Event.h"
@@ -7,6 +8,8 @@
 #include "AiObject.h"
 #include "playerbot/GuidPosition.h"
 #include "NamedObjectContext.h"
+
+#include <algorithm>
 
 namespace ai
 {
@@ -64,6 +67,7 @@ namespace ai
                 lastCheckTime = now;
 
                 auto pmo = sPerformanceMonitor.start(PERF_MON_VALUE, AiNamedObject::getName(), this->ai);
+                MANTECH_DIAG_SCOPE(BotValue,32,AiNamedObject::getName().c_str());
                 value = Calculate();
             }
             return value;
@@ -77,7 +81,7 @@ namespace ai
         virtual void Set(T value) override { this->value = value; }
         virtual void Update() { }
         virtual void Reset() override { lastCheckTime = 0; }
-        virtual bool Expired() override { return Expired(checkInterval / 2); }
+        virtual bool Expired() override { return Expired(static_cast<uint32>(std::max(1, checkInterval / 2))); }
         virtual bool Expired(uint32 interval) override { return time(0) - lastCheckTime >= interval; }
     protected:
         virtual T Calculate() = 0;
@@ -85,7 +89,7 @@ namespace ai
     protected:
         int checkInterval;
         time_t lastCheckTime;
-        T value;
+        T value{};
     };
 
     template <class T> class SingleCalculatedValue : public CalculatedValue<T>
@@ -101,6 +105,7 @@ namespace ai
                 this->lastCheckTime = now;
 
                 auto pmo = sPerformanceMonitor.start(PERF_MON_VALUE, AiNamedObject::getName(), this->ai);
+                MANTECH_DIAG_SCOPE(BotValue,32,AiNamedObject::getName().c_str());
                 this->value = this->Calculate();
             }
             return this->value;
@@ -123,12 +128,21 @@ namespace ai
         T GetLastValue() { return lastValue; }
         time_t GetLastTime() { return lastChangeTime; }
 
-        virtual T GetDelta() { T lVal = lastValue; time_t lTime = lastChangeTime; if (lastChangeTime == time(0)) return Get() - Get(); return (Get() - lVal) / float(time(0) - lTime); }
+        virtual T GetDelta()
+        {
+            const T previousValue = lastValue;
+            const time_t previousTime = lastChangeTime;
+            const T current = Get();
+            const time_t elapsed = time(0) - previousTime;
+            return !previousTime || elapsed <= 0 ? current - current : (current - previousValue) / float(elapsed);
+        }
 
-        virtual void Reset() override { CalculatedValue<T>::Reset(); lastChangeTime = time(0); }
+        // The next sample establishes a new baseline; do not compare against
+        // the previous target/state or an uninitialized lastValue after Reset.
+        virtual void Reset() override { CalculatedValue<T>::Reset(); lastChangeTime = 0; }
         virtual bool Protected() override { return true; }
     protected:
-        T lastValue;
+        T lastValue{};
         uint32 minChangeInterval = 0; //Change will not be checked untill this interval has passed.
         time_t lastChangeTime;
     };
@@ -137,17 +151,42 @@ namespace ai
     {
     public:
         LogCalculatedValue(PlayerbotAI* ai, std::string name = "value", int checkInterval = 1) : MemoryCalculatedValue<T>(ai, name, checkInterval) {};
-        virtual bool UpdateChange() override { if (MemoryCalculatedValue<T>::UpdateChange()) return false; valueLog.push_back(std::make_pair(this->value, time(0))); if (valueLog.size() > logLength) valueLog.pop_front(); return true; }
+        virtual bool UpdateChange() override
+        {
+            if (!MemoryCalculatedValue<T>::UpdateChange())
+                return false;
+
+            valueLog.push_back(std::make_pair(this->value, time(0)));
+            if (valueLog.size() > logLength)
+                valueLog.pop_front();
+            return true;
+        }
 
         virtual T Get() override { return MemoryCalculatedValue<T>::Get(); }
 
         std::list<std::pair<T, time_t>> ValueLog() { return valueLog; }
 
-        std::pair<T, time_t> GetLogOn(time_t t) { auto log = std::find_if(valueLog.rbegin(), valueLog.rend(), [t](std::pair<T, time_t> p) {return p.second < t; }); if (log == valueLog.rend()) return valueLog.front(); return *log; }
-        T GetValueOn(time_t t) { return GetLogOn(t)->first; }
-        T GetTimeOn(time_t t) { return GetTimeOn(t)->second; }
+        std::pair<T, time_t> GetLogOn(time_t t)
+        {
+            if (valueLog.empty())
+                Get();
+            auto log = std::find_if(valueLog.rbegin(), valueLog.rend(),
+                [t](const std::pair<T, time_t>& p) { return p.second <= t; });
+            return log == valueLog.rend() ? valueLog.front() : *log;
+        }
+        T GetValueOn(time_t t) { return GetLogOn(t).first; }
+        time_t GetTimeOn(time_t t) { return GetLogOn(t).second; }
 
-        virtual T GetDelta(uint32 window) { std::pair<T, time_t> log = GetLogOn(time(0) - window); if (log.second == time(0)) return Get() - Get(); return (Get() - log.first) / float(time(0) - log.second); }
+        virtual T GetDelta(uint32 window)
+        {
+            // Calculate first: a target change can clear this history inside
+            // Calculate(), and diagnostics may ask for delta before any Get().
+            const T current = Get();
+            const time_t now = time(0);
+            const std::pair<T, time_t> log = GetLogOn(now - window);
+            const time_t elapsed = now - log.second;
+            return elapsed <= 0 ? current - current : (current - log.first) / float(elapsed);
+        }
 
         virtual void Reset() override { MemoryCalculatedValue<T>::Reset(); valueLog.clear(); }
     protected:
@@ -230,14 +269,13 @@ namespace ai
     {
     public:
         CDPairCalculatedValue(PlayerbotAI* ai, std::string name = "value", int checkInterval = 1) :
-            CalculatedValue<CreatureDataPair const*>(ai, name, checkInterval) { this->lastCheckTime = time(0) - checkInterval / 2; }
+            CalculatedValue<CreatureDataPair const*>(ai, name, checkInterval) {}
 
         virtual std::string Format() override
         {
             CreatureDataPair const* creatureDataPair = this->Calculate();
             if (!creatureDataPair)
                 return "<none>";
-
             CreatureInfo const* bmTemplate = ObjectMgr::GetCreatureTemplate(creatureDataPair->second.id);
             return bmTemplate ? bmTemplate->Name : "<none>";
         }
@@ -247,7 +285,7 @@ namespace ai
     {
     public:
         CDPairListCalculatedValue(PlayerbotAI* ai, std::string name = "value", int checkInterval = 1) :
-            CalculatedValue<std::list<CreatureDataPair const*>>(ai, name, checkInterval) { this->lastCheckTime = time(0) - checkInterval / 2; }
+            CalculatedValue<std::list<CreatureDataPair const*>>(ai, name, checkInterval) {}
 
         virtual std::string Format() override
         {
@@ -256,6 +294,8 @@ namespace ai
             for (std::list<CreatureDataPair const*>::iterator i = cdPairs.begin(); i != cdPairs.end(); ++i)
             {
                 CreatureDataPair const* cdPair = *i;
+                if (!cdPair)
+                    continue;
                 out << cdPair->first << ",";
             }
             out << "}";
@@ -267,7 +307,7 @@ namespace ai
     {
     public:
         ObjectGuidCalculatedValue(PlayerbotAI* ai, std::string name = "value", int checkInterval = 1) :
-            CalculatedValue<ObjectGuid>(ai, name, checkInterval) { this->lastCheckTime = time(0) - checkInterval / 2; }
+            CalculatedValue<ObjectGuid>(ai, name, checkInterval) {}
 
         virtual std::string Format() override;
     };
@@ -276,7 +316,7 @@ namespace ai
     {
     public:
         ObjectGuidListCalculatedValue(PlayerbotAI* ai, std::string name = "value", int checkInterval = 1) :
-            CalculatedValue<std::list<ObjectGuid> >(ai, name, checkInterval) { this->lastCheckTime = time(0) - checkInterval / 2; }
+            CalculatedValue<std::list<ObjectGuid> >(ai, name, checkInterval) {}
 
         virtual std::string Format() override;
     };
@@ -285,7 +325,7 @@ namespace ai
     {
     public:
         GuidPositionCalculatedValue(PlayerbotAI* ai, std::string name = "value", int checkInterval = 1) :
-            CalculatedValue<GuidPosition>(ai, name, checkInterval) { this->lastCheckTime = time(0) - checkInterval / 2; }
+            CalculatedValue<GuidPosition>(ai, name, checkInterval) {}
 
         virtual std::string Format() override;
     };
@@ -294,7 +334,7 @@ namespace ai
     {
     public:
         GuidPositionListCalculatedValue(PlayerbotAI* ai, std::string name = "value", int checkInterval = 1) :
-            CalculatedValue<std::list<GuidPosition> >(ai, name, checkInterval) { this->lastCheckTime = time(0) - checkInterval / 2; }
+            CalculatedValue<std::list<GuidPosition> >(ai, name, checkInterval) {}
 
         virtual std::string Format() override;
     };

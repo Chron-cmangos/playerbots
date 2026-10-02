@@ -2,6 +2,7 @@
 #include "playerbot/playerbot.h"
 #include "CombatStrategy.h"
 #include "playerbot/ServerFacade.h"
+#include "playerbot/strategy/actions/GenericSpellActions.h"
 
 using namespace ai;
 
@@ -134,13 +135,13 @@ bool WaitForAttackStrategy::ShouldWait(PlayerbotAI* ai)
             // Don't wait if the current target is an enemy player
             bool enemyPlayer = false;
             PlayerbotAI* ai = bot->GetPlayerbotAI();
-            Unit* target = ai->GetUnit(context->GetValue<ObjectGuid>("current target")->Get());
+            Unit* target = ai->GetUnit(ai->GetAiObjectContext()->GetValue<ObjectGuid>("current target")->Get());
             if (target)
             {
                 Player* player = dynamic_cast<Player*>(target);
                 if (player)
                 {
-                    enemyPlayer = !sServerFacade.IsFriendlyTo(target, player);
+                    enemyPlayer = !sServerFacade.IsFriendlyTo(bot, player);
                 }
             }
 
@@ -169,6 +170,13 @@ uint8 WaitForAttackStrategy::GetWaitTime(PlayerbotAI* ai)
 
 float WaitForAttackMultiplier::GetValue(Action* action)
 {
+    if (!action) return 1.0f;
+    // Waiting for the tank's opening threat must not block a rescue heal.
+    if (dynamic_cast<CastHealingSpellAction*>(action))
+        if (Unit* patient = action->GetTarget())
+            if (patient->GetHealthPercent() < sPlayerbotAIConfig.lowHealth)
+                return 1.0f;
+
     // Allow some movement and targeting actions and non threat actions (like cc!)
     const std::string& actionName = action->getName();
     if ((actionName != "wait for attack keep safe distance") && 

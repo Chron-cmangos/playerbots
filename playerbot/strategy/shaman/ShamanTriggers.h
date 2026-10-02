@@ -1,8 +1,29 @@
 #pragma once
+#include "ShamanInterrupt.h"
 #include "playerbot/strategy/triggers/GenericTriggers.h"
+#include "ShamanTotemSpells.h"
 
 namespace ai
 {
+#ifdef MANGOSBOT_TWO
+    BOOST_TRIGGER(FeralSpiritTrigger, "feral spirit");
+    class ElementalFlameShockTrigger : public DebuffTrigger
+    {
+    public:
+        ElementalFlameShockTrigger(PlayerbotAI* ai) : DebuffTrigger(ai, "flame shock", 1, true) {}
+    };
+    class LavaBurstTrigger : public SpellCanBeCastedTrigger
+    {
+    public:
+        LavaBurstTrigger(PlayerbotAI* ai) : SpellCanBeCastedTrigger(ai, "lava burst") {}
+        bool IsActive() override
+        {
+            Unit* target = GetTarget();
+            return target && ai->HasAura("flame shock", target, false, true) &&
+                SpellCanBeCastedTrigger::IsActive();
+        }
+    };
+#endif
     class ShamanWeaponTrigger : public BuffTrigger 
     {
     public:
@@ -111,7 +132,8 @@ namespace ai
             }
             else
             {
-                return !AI_VALUE2(bool, "has totem", "searing totem") &&
+                return !AI_VALUE2(bool, "has totem", "fire nova totem") &&
+                       !AI_VALUE2(bool, "has totem", "searing totem") &&
                        !AI_VALUE2(bool, "has totem", "magma totem") &&
                        !AI_VALUE2(bool, "has totem", "frost resistance totem") &&
                        !AI_VALUE2(bool, "has totem", "flametongue totem") &&
@@ -131,6 +153,7 @@ namespace ai
         virtual bool IsActive() override
         {
             return AI_VALUE(uint8, "attackers count") >= 3 &&
+                !AI_VALUE2(bool, "has totem", "fire nova totem") &&
                 !AI_VALUE2(bool, "has totem", "searing totem") &&
                 !AI_VALUE2(bool, "has totem", "magma totem") &&
                 !AI_VALUE2(bool, "has totem", "frost resistance totem") &&
@@ -258,7 +281,7 @@ namespace ai
 
             if (ai->HasStrategy("totem water cleansing", BotState::BOT_STATE_COMBAT))
             {
-                return !AI_VALUE2(bool, "has totem", "disease cleansing totem");
+                return !AI_VALUE2(bool, "has totem", DiseaseCleansingTotemName());
             }
             else if (ai->HasStrategy("totem water resistance", BotState::BOT_STATE_COMBAT))
             {
@@ -274,14 +297,14 @@ namespace ai
             }
             else if (ai->HasStrategy("totem water poison", BotState::BOT_STATE_COMBAT))
             {
-                return !AI_VALUE2(bool, "has totem", "poison cleansing totem");
+                return !AI_VALUE2(bool, "has totem", PoisonCleansingTotemName());
             }
             else
             {
                 return !AI_VALUE2(bool, "has totem", "healing stream totem") &&
                        !AI_VALUE2(bool, "has totem", "mana spring totem") &&
-                       !AI_VALUE2(bool, "has totem", "poison cleansing totem") &&
-                       !AI_VALUE2(bool, "has totem", "disease cleansing totem") &&
+                       !AI_VALUE2(bool, "has totem", PoisonCleansingTotemName()) &&
+                       !AI_VALUE2(bool, "has totem", DiseaseCleansingTotemName()) &&
                        !AI_VALUE2(bool, "has totem", "mana tide totem") &&
                        !AI_VALUE2(bool, "has totem", "fire resistance totem");
             }
@@ -294,7 +317,7 @@ namespace ai
     class WindShearInterruptSpellTrigger : public InterruptSpellTrigger
     {
     public:
-        WindShearInterruptSpellTrigger(PlayerbotAI* ai) : InterruptSpellTrigger(ai, "wind shear") {}
+        WindShearInterruptSpellTrigger(PlayerbotAI* ai) : InterruptSpellTrigger(ai, ShamanInterruptSpell()) {}
     };
 
     class WaterShieldTrigger : public BuffTrigger
@@ -324,6 +347,8 @@ namespace ai
 
             for (uint32 type = SPELL_AURA_NONE; type < TOTAL_AURAS; ++type)
             {
+                if (!target->HasAuraType((AuraType)type))
+                    continue;
                 Unit::AuraList const& auras = target->GetAurasByType((AuraType)type);
                 for (Unit::AuraList::const_iterator itr = auras.begin(); itr != auras.end(); ++itr)
                 {
@@ -479,12 +504,21 @@ namespace ai
     {
     public:
         MaelstromWeaponTrigger(PlayerbotAI* ai) : HasAuraTrigger(ai, "maelstrom weapon") {}
+        bool IsActive() override
+        {
+#ifdef MANGOSBOT_TWO
+            Aura* aura = ai->GetAura(53817, bot);
+            return aura && aura->GetStackAmount() >= 5;
+#else
+            return false;
+#endif
+        }
     };
 
     class WindShearInterruptEnemyHealerSpellTrigger : public InterruptEnemyHealerTrigger
     {
     public:
-        WindShearInterruptEnemyHealerSpellTrigger(PlayerbotAI* ai) : InterruptEnemyHealerTrigger(ai, "wind shear") {}
+        WindShearInterruptEnemyHealerSpellTrigger(PlayerbotAI* ai) : InterruptEnemyHealerTrigger(ai, ShamanInterruptSpell()) {}
     };
 
     class CurePoisonTrigger : public NeedCureTrigger

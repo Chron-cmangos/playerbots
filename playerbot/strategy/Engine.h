@@ -1,7 +1,5 @@
 #pragma once
 
-#include <map>
-
 #include "Action.h"
 #include "Queue.h"
 #include "Trigger.h"
@@ -9,6 +7,9 @@
 #include "AiObjectContext.h"
 #include "Strategy.h"
 #include "playerbot/BotState.h"
+
+#include <atomic>
+#include <unordered_map>
 
 namespace ai
 {
@@ -81,6 +82,12 @@ namespace ai
 		void PrintStrategies(Player* requester, const std::string& engineType);
         std::string GetLastAction() { return lastAction; }
         const Action* GetLastExecutedAction() const { return lastExecutedAction; }
+        static uint64 GetSuppressedImpossibleActions();
+        static uint64 GetSuppressedFailedActions();
+        static uint64 GetActionFailureCacheEntries();
+        static uint64 GetActionFailureCachePeakEntries();
+        static uint64 GetExpiredActionFailureEntries();
+        static uint64 GetEvictedActionFailureEntries();
 
     public:
 	    virtual bool DoNextAction(Unit*, int depth, bool minimal, bool isStunned);
@@ -105,19 +112,30 @@ namespace ai
         void Reset();
         void ProcessTriggers(bool minimal);
         void PushDefaultActions();
-        void PushAgain(ActionNode* actionNode, float relevance, const Event& event);
+        void PushAgain(ActionNode* actionNode, float relevance, const Event& event, bool skipPrerequisites = true);
         ActionNode* CreateActionNode(const std::string& name);
         virtual Action* InitializeAction(ActionNode* actionNode);
         virtual bool ListenAndExecute(Action* action, Event& event);
-        // Hands an external (packet) trigger back once its action has had its turn.
-        void ReleaseExternalEvent(const std::string& source);
-        // Drops armed entries whose TriggerNode is gone, so they cannot suppress later packets of the
-        // same opcode forever. Called from Init() once the trigger list has been rebuilt.
-        void PruneUnhandledExternalEvents();
 
     private:
         void LogAction(const char* format, ...);
         void LogValues();
+        std::string GetFailureKey(Action* action, const Event& event, ActionResult reason) const;
+        bool IsFailureBackedOff(Action* action, const Event& event, ActionResult reason) const;
+        std::string GetFailureReadiness(Action* action) const;
+        void RecordFailure(Action* action, const Event& event, ActionResult reason);
+        void ClearFailures(Action* action, const Event& event);
+        void PruneActionFailures(uint32 now, bool enforceLimit = false);
+        void ClearActionFailures();
+        static void UpdateActionFailureCachePeak(uint64 value);
+
+        struct FailureState
+        {
+            uint32 failures = 0;
+            uint32 retryAfter = 0;
+            uint32 lastFailure = 0;
+            std::string readiness;
+        };
 
     protected:
 	    Queue queue;
@@ -130,13 +148,14 @@ namespace ai
         ActionExecutionListeners actionExecutionListeners;
         BotState state;
         Action* lastExecutedAction;
-
-        // External (packet) triggers whose event has been queued but not yet handed to its action,
-        // keyed by trigger name (= the event source). They are exempt from the end-of-tick trigger
-        // reset, so a request that loses the tick (the engine runs one action per tick) or whose
-        // basket is dropped from the queue is re-pushed instead of silently lost. Entries are removed
-        // by ReleaseExternalEvent() as soon as the action has had its turn.
-        std::map<std::string, Trigger*> unhandledExternalEvents;
+        std::unordered_map<std::string, FailureState> actionFailures;
+        uint32 lastActionFailurePrune = 0;
+        static std::atomic<uint64> suppressedImpossibleActions;
+        static std::atomic<uint64> suppressedFailedActions;
+        static std::atomic<uint64> actionFailureCacheEntries;
+        static std::atomic<uint64> actionFailureCachePeakEntries;
+        static std::atomic<uint64> expiredActionFailureEntries;
+        static std::atomic<uint64> evictedActionFailureEntries;
 
     public:
 		bool testMode;

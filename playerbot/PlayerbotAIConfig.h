@@ -114,8 +114,9 @@ public:
     bool enabled;
     bool allowGuildBots;
     bool allowMultiAccountAltBots;
-    uint32 globalCoolDown, reactDelay, maxWaitForMove, expireActionTime, dispelAuraDuration, passiveDelay, repeatDelay,
-        errorDelay, rpgDelay, sitDelay, returnDelay, lootDelay;
+    uint32 globalCoolDown, reactDelay, pathFailureRetryMs, maxWaitForMove, expireActionTime, dispelAuraDuration, passiveDelay, repeatDelay,
+        errorDelay, rpgDelay, sitDelay, returnDelay, lootDelay, valueCacheCleanupInterval,
+        failedActionRetryBase, failedActionRetryMax, failedActionCacheTtl, failedActionCacheMaxEntries;
     float sightDistance, spellDistance, reactDistance, grindDistance, lootDistance, groupMemberLootDistance, groupMemberLootDistanceWithActiveMaster,
         gatheringDistance, groupMemberGatheringDistance, groupMemberGatheringDistanceWithActiveMaster, shootDistance,
         fleeDistance, tooCloseDistance, meleeDistance, followDistance, raidFollowDistance, wanderMinDistance, wanderMaxDistance, whisperDistance, contactDistance,
@@ -171,6 +172,30 @@ public:
     uint32 minRandomBotPvpTime, maxRandomBotPvpTime;
     uint32 randomBotsMaxLoginsPerInterval;
     uint32 randomBotsPerInterval;
+    uint32 randomBotManagerBudgetMs;
+    uint32 randomBotManagerScanLimit;
+    uint32 randomBotLoginDbQueueLimit;
+    uint32 randomBotDatabasePingInterval, performanceMapScanInterval;
+    // Experimental reliability adaptations: enable individually in DEV.
+    bool unreachableTargetRecovery = false;
+    bool dungeonCorpseRecovery = false;
+    bool explicitBodyPull = false;
+    bool partyCommandCoordinator = false;
+    bool incidentHistory = false;
+    bool diagnosticsEnabled = false;
+    uint32 diagnosticsMode = 0;
+    uint32 diagnosticsInterval = 30000;
+    uint32 diagnosticsEngineSampleRate = 16;
+    uint32 diagnosticsTopFailures = 10;
+    uint32 diagnosticsMaxFailureKeys = 2048;
+    std::string diagnosticsLogFile = "PlayerbotDiagnostics.log";
+    bool combatDiagnosticsEnabled = false;
+    uint32 combatDiagnosticsSampleRate = 16;
+    uint32 combatDiagnosticsClassMask = 0xFFE;
+    uint32 combatDiagnosticsTraceBot = 0;
+    uint32 combatDiagnosticsMaxKeys = 2048;
+    uint32 combatDiagnosticsMaxTraces = 128;
+    uint32 combatDiagnosticsMaxFileMB = 8;
     uint32 minRandomBotsPriceChangeInterval, maxRandomBotsPriceChangeInterval;
     //Auction house settings
     bool shouldQueryAHListingsOutsideOfAH;
@@ -221,7 +246,6 @@ public:
     bool boostFollow;
     bool turnInRpg;
     bool globalSoundEffects;
-    bool shareTargets;
     std::list<uint32> randomBotGuilds;
 	std::list<uint32> pvpProhibitedZoneIds;
     bool enableGreet;
@@ -323,6 +347,7 @@ public:
 
     bool talentsInPublicNote;
     bool nonGmFreeSummon;
+    bool recruitmentRevive;
 
     BotSelfBotLevel selfBotLevel;
     uint32 iterationsPerTick;
@@ -338,6 +363,7 @@ public:
     bool autoLearnQuestSpells;
     bool autoLearnDroppedSpells;
     bool autoDoQuests;
+    bool autonomousTravel;
     bool syncLevelWithPlayers;
     uint32 syncLevelMaxAbove, syncLevelNoPlayer;
     bool syncAltLevelToMaster;

@@ -456,25 +456,50 @@ BotPool PlayerBotLoginMgr::LoadBotsFromDb()
 
 void PlayerBotLoginMgr::SendHolders(const BotInfos& queue)
 {  
+    const uint32 queueLimit = sPlayerbotAIConfig.randomBotLoginDbQueueLimit;
+    uint32 available = static_cast<uint32>(queue.size());
+    if (queueLimit)
+    {
+        const size_t pending = CharacterDatabase.GetPendingResultCount() + CharacterDatabase.GetPendingAsyncOperationCount();
+        available = pending >= queueLimit ? 0 : std::min<uint32>(available, queueLimit - static_cast<uint32>(pending));
+    }
+    if (!available)
+        return;
+
     CharacterDatabase.AsyncPQuery(&RandomPlayerbotMgr::DatabasePing, sWorld.GetCurrentMSTime(), std::string("CharacterDatabase"), "select 1");
 
     for (auto& info : queue)
     {
+        if (!available)
+            break;
         if (sRandomPlayerbotMgr.GetDatabaseDelay("CharacterDatabase") > 100)
             break;
-        info->SendHolder();
+        if (info->SendHolder())
+            --available;
     }
 }
 
 void PlayerBotLoginMgr::SendHolders(BotPool* pool)
 {
-    CharacterDatabase.AsyncPQuery(&RandomPlayerbotMgr::DatabasePing, sWorld.GetCurrentMSTime(), std::string("CharacterDatabase"), "select 1");
+    const uint32 queueLimit = sPlayerbotAIConfig.randomBotLoginDbQueueLimit;
+    uint32 available = queueLimit;
+    if (queueLimit)
+    {
+        const size_t pending = CharacterDatabase.GetPendingResultCount() + CharacterDatabase.GetPendingAsyncOperationCount();
+        available = pending >= queueLimit ? 0 : queueLimit - static_cast<uint32>(pending);
+    }
+    if (queueLimit && !available)
+        return;
 
+    CharacterDatabase.AsyncPQuery(&RandomPlayerbotMgr::DatabasePing, sWorld.GetCurrentMSTime(), std::string("CharacterDatabase"), "select 1");
     for (auto& [guid, info] : *pool)
     {
+        if (queueLimit && !available)
+            break;
         if (sRandomPlayerbotMgr.GetDatabaseDelay("CharacterDatabase") > 100)
             break;
-        info.SendHolder();
+        if (info.SendHolder() && queueLimit)
+            --available;
     }
 }
 
@@ -702,11 +727,25 @@ BotInfos PlayerBotLoginMgr::FillLoginLogoutQueue(BotPool* pool, const RealPlayer
 
 void PlayerBotLoginMgr::LoginLogoutBots(const BotInfos& queue)
 {
+    const uint32 target = GetMaxOnlineBotCount();
+    const uint32 online = sRandomPlayerbotMgr.GetPlayerbotsAmount();
+    uint32 admissionCapacity = target > online ? target - online : 0;
+
     for (auto& info : queue)
-    {        
+    {
+        if (info->GetLoginState() == LoginState::BOT_ON_LOGINQUEUE && !admissionCapacity)
+        {
+            // The asynchronously prepared queue can become stale while login
+            // holders are completing. Revalidate the hard target on the world
+            // thread before materializing another session.
+            info->ResetLoginState();
+            continue;
+        }
+
         if (info->LoginBot())
         {
             onlineBots.push_back(info);
+            --admissionCapacity;
         }
         if (info->LogoutBot())
         {

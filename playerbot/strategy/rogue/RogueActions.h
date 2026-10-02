@@ -4,26 +4,50 @@
 
 namespace ai
 {
+#ifdef MANGOSBOT_TWO
+    BUFF_ACTION(CastHungerForBloodAction, "hunger for blood");
+#endif
+#if defined(MANGOSBOT_ONE) || defined(MANGOSBOT_TWO)
+    class CastEnvenomAction : public CastMeleeSpellAction
+    {
+    public:
+        CastEnvenomAction(PlayerbotAI* ai) : CastMeleeSpellAction(ai, "envenom") {}
+        bool isUseful() override
+        {
+            if (!CastMeleeSpellAction::isUseful())
+                return false;
+            // Match the core's Envenom damage selector: only our own Deadly
+            // Poison doses count. Do not spend four combo points on no poison
+            // (or one dose) merely because the core allows the cast.
+            Unit* target = GetTarget();
+            if (!target || !bot->GetComboPoints())
+                return false;
+            for (const auto aura : target->GetAurasByType(SPELL_AURA_PERIODIC_DAMAGE))
+                if (aura->GetSpellProto()->SpellFamilyName == SPELLFAMILY_ROGUE &&
+                    (aura->GetSpellProto()->SpellFamilyFlags & uint64(0x10000)) &&
+                    aura->GetCasterGuid() == bot->GetObjectGuid() &&
+                    aura->GetStackAmount() >= bot->GetComboPoints())
+                    return true;
+            return false;
+        }
+    };
+#endif
     BUFF_ACTION(CastColdBloodAction, "cold blood");
 
-    BUFF_ACTION_U(CastPreparationAction, "preparation", !bot->IsSpellReady(14177) || !bot->IsSpellReady(2983) || !bot->IsSpellReady(2094));
+    class CastPreparationAction : public CastBuffSpellAction
+    {
+    public:
+        CastPreparationAction(PlayerbotAI* ai) : CastBuffSpellAction(ai, "preparation") {}
+        bool isUseful() override;
+    };
 
     class CastShadowstepAction : public CastSpellAction 
     {
     public:
         CastShadowstepAction(PlayerbotAI* ai) : CastSpellAction(ai, "shadowstep") {}
 
-        virtual bool isPossible() { return true; }
-
-        virtual bool isUseful() override
-        {
-            return bot->HasSpell(36554) && bot->IsSpellReady(36554);
-        }
-
-        virtual bool Execute(Event& event) override
-        {
-            return bot->CastSpell(GetTarget(), 36554, TRIGGERED_OLD_TRIGGERED);
-        }
+        // Use the ordinary spell action: target/range/resource checks and a
+        // normal cast, rather than a forced triggered cast with enum-as-bool results.
     };
 
 	class CastEvasionAction : public CastBuffSpellAction
@@ -54,19 +78,20 @@ namespace ai
             }
 
             // do not use with WSG flag
-            return !ai->HasAura(23333, bot) && !ai->HasAura(23335, bot) && !ai->HasAura(34976, bot);
+            return CastBuffSpellAction::isUseful() && !ai->HasAura(23333, bot) && !ai->HasAura(23335, bot) && !ai->HasAura(34976, bot);
         }
 
         virtual bool Execute(Event& event)
         {
-            if (ai->CastSpell("stealth", bot))
+            if (CastBuffSpellAction::Execute(event))
             {
                 ai->ChangeStrategy("+stealthed", BotState::BOT_STATE_COMBAT);
                 ai->ChangeStrategy("+stealthed", BotState::BOT_STATE_NON_COMBAT);
                 bot->InterruptSpell(CURRENT_MELEE_SPELL);
+                return true;
             }
 
-            return true;
+            return false;
         }
     };
 
@@ -155,12 +180,12 @@ namespace ai
         virtual bool isUseful()
         {
             // do not use with WSG flag or EYE flag
-            return !ai->HasAura(23333, bot) && !ai->HasAura(23335, bot) && !ai->HasAura(34976, bot);
+            return CastBuffSpellAction::isUseful() && !ai->HasAura(23333, bot) && !ai->HasAura(23335, bot) && !ai->HasAura(34976, bot);
         }
 
         virtual bool Execute(Event& event)
         {
-            if (ai->CastSpell("vanish", bot))
+            if (CastBuffSpellAction::Execute(event))
             {
                 if (ai->HasStrategy("stealth", BotState::BOT_STATE_COMBAT))
                 {
@@ -207,10 +232,10 @@ namespace ai
         std::string GetReachActionName() override { return "reach melee"; }
     };
 
-    class CastTricksOfTheTradeOnPartyAction : public BuffOnPartyAction 
+    class CastTricksOfTheTradeOnPartyAction : public TankThreatTransferAction
     {
     public:
-        CastTricksOfTheTradeOnPartyAction(PlayerbotAI* ai) : BuffOnPartyAction(ai, "tricks of the trade") {}
+        CastTricksOfTheTradeOnPartyAction(PlayerbotAI* ai) : TankThreatTransferAction(ai, "tricks of the trade") {}
     };
 
     class CastCloakOfShadowsAction : public CastCureSpellAction
@@ -223,13 +248,8 @@ namespace ai
     {
     public:
         CastSapAction(PlayerbotAI* ai) : CastMeleeSpellAction(ai, "sap") {}
-
-        virtual Value<ObjectGuid>* GetTargetValue()
-        {
-            return context->GetValue<ObjectGuid>("cc target", getName());
-        }
-
-        virtual bool isUseful() override { return true; }
+        std::string GetTargetName() override { return "cc target"; }
+        std::string GetTargetQualifier() override { return GetSpellName(); }
     };
 
     class CastGarroteAction : public CastMeleeSpellAction

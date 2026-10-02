@@ -1,6 +1,8 @@
 
 #include "playerbot/playerbot.h"
+#include "playerbot/PartyCombatSupport.h"
 #include "TargetValue.h"
+#include "PossibleTargetsValue.h"
 
 #include "playerbot/ServerFacade.h"
 #include "RtiTargetValue.h"
@@ -16,7 +18,8 @@ Unit* TargetValue::FindTarget(FindTargetStrategy* strategy)
     for (std::list<ObjectGuid>::iterator i = attackers.begin(); i != attackers.end(); ++i)
     {
         Unit* unit = ai->GetUnit(*i);
-        if (!unit)
+        // Revalidate cached GUIDs before scoring; keep LOS movement available.
+        if (!PossibleTargetsValue::IsValid(unit, ai->GetBot(), true))
             continue;
 
         ThreatManager &threatManager = sServerFacade.GetThreatManager(unit);
@@ -53,6 +56,10 @@ bool FindNonCcTargetStrategy::IsCcTarget(Unit* attacker)
                 }
             }
         }
+
+        uint64 guid = group->GetTargetIcon(4);
+        if (guid && attacker->GetObjectGuid() == ObjectGuid(guid))
+            return true;
     }
 
     return false;
@@ -157,6 +164,10 @@ ObjectGuid PullTargetValue::Get()
 ObjectGuid FollowTargetValue::Calculate()
 {
     Unit* followTarget = AI_VALUE(GuidPosition, "manual follow target").GetUnit(bot->GetInstanceId());
+    if (!followTarget && ai->IsHeal(bot) &&
+        !ai->HasStrategy("stay", BotState::BOT_STATE_NON_COMBAT) &&
+        !ai->HasStrategy("guard", BotState::BOT_STATE_NON_COMBAT))
+        followTarget = GetPartyCombatAnchor(ai);
     if (followTarget == nullptr)
     {
         Formation* formation = AI_VALUE(Formation*, "formation");

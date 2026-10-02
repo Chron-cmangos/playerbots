@@ -44,6 +44,39 @@ void DisciplinePriestStrategy::InitCombatTriggers(std::list<TriggerNode*>& trigg
     triggers.push_back(new TriggerNode(
         "party member almost full health",
         NextAction::array(0, new NextAction("renew on party", ACTION_LIGHT_HEAL), NULL)));
+
+#ifndef MANGOSBOT_ZERO
+
+    triggers.push_back(new TriggerNode(
+        "critical health",
+        NextAction::array(0, new NextAction("pain suppression", ACTION_CRITICAL_HEAL + 3), NULL)));
+#endif
+
+#ifndef MANGOSBOT_ZERO
+
+    triggers.push_back(new TriggerNode(
+        "party member critical health",
+        NextAction::array(0, new NextAction("binding heal", ACTION_CRITICAL_HEAL + 2), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "party member low health",
+        NextAction::array(0, new NextAction("binding heal", ACTION_MEDIUM_HEAL + 4), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "party member medium health",
+        NextAction::array(0, new NextAction("binding heal", ACTION_MEDIUM_HEAL + 1), NULL)));
+#endif
+
+#ifdef MANGOSBOT_TWO
+
+    triggers.push_back(new TriggerNode(
+        "critical health",
+        NextAction::array(0, new NextAction("penance", ACTION_CRITICAL_HEAL + 2), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "low health",
+        NextAction::array(0, new NextAction("penance", ACTION_MEDIUM_HEAL + 3), NULL)));
+#endif
 }
 
 void DisciplinePriestStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -67,6 +100,55 @@ void DisciplinePriestStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& tr
     triggers.push_back(new TriggerNode(
         "party member almost full health",
         NextAction::array(0, new NextAction("renew on party", ACTION_LIGHT_HEAL), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "critical health",
+        NextAction::array(0, new NextAction("flash heal", ACTION_CRITICAL_HEAL), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "low health",
+        NextAction::array(0, new NextAction("greater heal", ACTION_MEDIUM_HEAL), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "medium health",
+        NextAction::array(0, new NextAction("renew", ACTION_LIGHT_HEAL), NULL)));
+
+#ifdef MANGOSBOT_TWO
+
+    triggers.push_back(new TriggerNode(
+        "party member critical health",
+        NextAction::array(0, new NextAction("penance on party", ACTION_CRITICAL_HEAL + 2), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "party member low health",
+        NextAction::array(0, new NextAction("penance on party", ACTION_MEDIUM_HEAL + 3), NULL)));
+#endif
+
+#ifndef MANGOSBOT_ZERO
+
+    triggers.push_back(new TriggerNode(
+        "party member critical health",
+        NextAction::array(0, new NextAction("binding heal", ACTION_CRITICAL_HEAL + 2), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "party member low health",
+        NextAction::array(0, new NextAction("binding heal", ACTION_MEDIUM_HEAL + 4), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "party member medium health",
+        NextAction::array(0, new NextAction("binding heal", ACTION_MEDIUM_HEAL + 1), NULL)));
+#endif
+
+#ifdef MANGOSBOT_TWO
+
+    triggers.push_back(new TriggerNode(
+        "critical health",
+        NextAction::array(0, new NextAction("penance", ACTION_CRITICAL_HEAL + 2), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "low health",
+        NextAction::array(0, new NextAction("penance", ACTION_MEDIUM_HEAL + 3), NULL)));
+#endif
 }
 
 void DisciplinePriestStrategy::InitReactionTriggers(std::list<TriggerNode*>& triggers)
@@ -163,6 +245,10 @@ void DisciplinePriestAoeStrategy::InitCombatTriggers(std::list<TriggerNode*>& tr
 void DisciplinePriestAoeStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     PriestAoeStrategy::InitNonCombatTriggers(triggers);
+
+    triggers.push_back(new TriggerNode(
+        "medium aoe heal",
+        NextAction::array(0, new NextAction("prayer of healing", ACTION_MEDIUM_HEAL), NULL)));
 }
 
 void DisciplinePriestAoePveStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -204,11 +290,32 @@ void DisciplinePriestAoeRaidStrategy::InitNonCombatTriggers(std::list<TriggerNod
 void DisciplinePriestBuffStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     PriestBuffStrategy::InitCombatTriggers(triggers);
+
+#ifndef MANGOSBOT_ZERO
+
+    triggers.push_back(new TriggerNode(
+        "often",
+        NextAction::array(0, new NextAction("prayer of mending", ACTION_HIGH), NULL)));
+#endif
+
+#ifdef MANGOSBOT_TWO
+
+    triggers.push_back(new TriggerNode(
+        "low mana",
+        NextAction::array(0, new NextAction("hymn of hope", ACTION_HIGH - 1), NULL)));
+#endif
 }
 
 void DisciplinePriestBuffStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     PriestBuffStrategy::InitNonCombatTriggers(triggers);
+
+#ifndef MANGOSBOT_ZERO
+
+    triggers.push_back(new TriggerNode(
+        "often",
+        NextAction::array(0, new NextAction("prayer of mending", ACTION_NORMAL), NULL)));
+#endif
 }
 
 void DisciplinePriestBuffPveStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -417,6 +524,39 @@ void DisciplinePriestStrategy::InitCombatTriggers(std::list<TriggerNode*>& trigg
     triggers.push_back(new TriggerNode(
         "binding heal",
         NextAction::array(0, new NextAction("binding heal", ACTION_LIGHT_HEAL), NULL)));
+
+#ifndef MANGOSBOT_ZERO
+
+    triggers.push_back(new TriggerNode(
+        "critical health",
+        NextAction::array(0, new NextAction("pain suppression", ACTION_CRITICAL_HEAL + 3), NULL)));
+#endif
+
+#ifndef MANGOSBOT_ZERO
+
+    triggers.push_back(new TriggerNode(
+        "party member critical health",
+        NextAction::array(0, new NextAction("binding heal", ACTION_CRITICAL_HEAL + 2), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "party member low health",
+        NextAction::array(0, new NextAction("binding heal", ACTION_MEDIUM_HEAL + 4), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "party member medium health",
+        NextAction::array(0, new NextAction("binding heal", ACTION_MEDIUM_HEAL + 1), NULL)));
+#endif
+
+#ifdef MANGOSBOT_TWO
+
+    triggers.push_back(new TriggerNode(
+        "critical health",
+        NextAction::array(0, new NextAction("penance", ACTION_CRITICAL_HEAL + 2), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "low health",
+        NextAction::array(0, new NextAction("penance", ACTION_MEDIUM_HEAL + 3), NULL)));
+#endif
 }
 
 void DisciplinePriestStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -440,6 +580,55 @@ void DisciplinePriestStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& tr
     triggers.push_back(new TriggerNode(
         "party member almost full health",
         NextAction::array(0, new NextAction("renew on party", ACTION_LIGHT_HEAL), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "critical health",
+        NextAction::array(0, new NextAction("flash heal", ACTION_CRITICAL_HEAL), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "low health",
+        NextAction::array(0, new NextAction("greater heal", ACTION_MEDIUM_HEAL), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "medium health",
+        NextAction::array(0, new NextAction("renew", ACTION_LIGHT_HEAL), NULL)));
+
+#ifdef MANGOSBOT_TWO
+
+    triggers.push_back(new TriggerNode(
+        "party member critical health",
+        NextAction::array(0, new NextAction("penance on party", ACTION_CRITICAL_HEAL + 2), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "party member low health",
+        NextAction::array(0, new NextAction("penance on party", ACTION_MEDIUM_HEAL + 3), NULL)));
+#endif
+
+#ifndef MANGOSBOT_ZERO
+
+    triggers.push_back(new TriggerNode(
+        "party member critical health",
+        NextAction::array(0, new NextAction("binding heal", ACTION_CRITICAL_HEAL + 2), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "party member low health",
+        NextAction::array(0, new NextAction("binding heal", ACTION_MEDIUM_HEAL + 4), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "party member medium health",
+        NextAction::array(0, new NextAction("binding heal", ACTION_MEDIUM_HEAL + 1), NULL)));
+#endif
+
+#ifdef MANGOSBOT_TWO
+
+    triggers.push_back(new TriggerNode(
+        "critical health",
+        NextAction::array(0, new NextAction("penance", ACTION_CRITICAL_HEAL + 2), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "low health",
+        NextAction::array(0, new NextAction("penance", ACTION_MEDIUM_HEAL + 3), NULL)));
+#endif
 }
 
 void DisciplinePriestStrategy::InitReactionTriggers(std::list<TriggerNode*>& triggers)
@@ -540,6 +729,14 @@ void DisciplinePriestAoeStrategy::InitCombatTriggers(std::list<TriggerNode*>& tr
 void DisciplinePriestAoeStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     PriestAoeStrategy::InitNonCombatTriggers(triggers);
+
+    triggers.push_back(new TriggerNode(
+        "medium aoe heal",
+        NextAction::array(0, new NextAction("prayer of mending", ACTION_MEDIUM_HEAL + 1), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "medium aoe heal",
+        NextAction::array(0, new NextAction("prayer of healing", ACTION_MEDIUM_HEAL), NULL)));
 }
 
 void DisciplinePriestAoePveStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -581,11 +778,32 @@ void DisciplinePriestAoeRaidStrategy::InitNonCombatTriggers(std::list<TriggerNod
 void DisciplinePriestBuffStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     PriestBuffStrategy::InitCombatTriggers(triggers);
+
+#ifndef MANGOSBOT_ZERO
+
+    triggers.push_back(new TriggerNode(
+        "often",
+        NextAction::array(0, new NextAction("prayer of mending", ACTION_HIGH), NULL)));
+#endif
+
+#ifdef MANGOSBOT_TWO
+
+    triggers.push_back(new TriggerNode(
+        "low mana",
+        NextAction::array(0, new NextAction("hymn of hope", ACTION_HIGH - 1), NULL)));
+#endif
 }
 
 void DisciplinePriestBuffStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     PriestBuffStrategy::InitNonCombatTriggers(triggers);
+
+#ifndef MANGOSBOT_ZERO
+
+    triggers.push_back(new TriggerNode(
+        "often",
+        NextAction::array(0, new NextAction("prayer of mending", ACTION_NORMAL), NULL)));
+#endif
 }
 
 void DisciplinePriestBuffPveStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -770,6 +988,13 @@ void DisciplinePriestStrategy::InitCombatTriggers(std::list<TriggerNode*>& trigg
     PriestStrategy::InitCombatTriggers(triggers);
 
     triggers.push_back(new TriggerNode(
+        "party member low health",
+        NextAction::array(0, new NextAction("penance on party", ACTION_MEDIUM_HEAL + 3), NULL)));
+    triggers.push_back(new TriggerNode(
+        "party member critical health",
+        NextAction::array(0, new NextAction("penance on party", ACTION_CRITICAL_HEAL + 2), NULL)));
+
+    triggers.push_back(new TriggerNode(
         "protect party member",
         NextAction::array(0, new NextAction("pain suppression on party", ACTION_EMERGENCY), NULL)));
 
@@ -794,6 +1019,39 @@ void DisciplinePriestStrategy::InitCombatTriggers(std::list<TriggerNode*>& trigg
     triggers.push_back(new TriggerNode(
         "binding heal",
         NextAction::array(0, new NextAction("binding heal", ACTION_LIGHT_HEAL), NULL)));
+
+#ifndef MANGOSBOT_ZERO
+
+    triggers.push_back(new TriggerNode(
+        "critical health",
+        NextAction::array(0, new NextAction("pain suppression", ACTION_CRITICAL_HEAL + 3), NULL)));
+#endif
+
+#ifndef MANGOSBOT_ZERO
+
+    triggers.push_back(new TriggerNode(
+        "party member critical health",
+        NextAction::array(0, new NextAction("binding heal", ACTION_CRITICAL_HEAL + 2), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "party member low health",
+        NextAction::array(0, new NextAction("binding heal", ACTION_MEDIUM_HEAL + 4), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "party member medium health",
+        NextAction::array(0, new NextAction("binding heal", ACTION_MEDIUM_HEAL + 1), NULL)));
+#endif
+
+#ifdef MANGOSBOT_TWO
+
+    triggers.push_back(new TriggerNode(
+        "critical health",
+        NextAction::array(0, new NextAction("penance", ACTION_CRITICAL_HEAL + 2), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "low health",
+        NextAction::array(0, new NextAction("penance", ACTION_MEDIUM_HEAL + 3), NULL)));
+#endif
 }
 
 void DisciplinePriestStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -817,6 +1075,55 @@ void DisciplinePriestStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& tr
     triggers.push_back(new TriggerNode(
         "party member almost full health",
         NextAction::array(0, new NextAction("renew on party", ACTION_LIGHT_HEAL), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "critical health",
+        NextAction::array(0, new NextAction("flash heal", ACTION_CRITICAL_HEAL), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "low health",
+        NextAction::array(0, new NextAction("greater heal", ACTION_MEDIUM_HEAL), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "medium health",
+        NextAction::array(0, new NextAction("renew", ACTION_LIGHT_HEAL), NULL)));
+
+#ifdef MANGOSBOT_TWO
+
+    triggers.push_back(new TriggerNode(
+        "party member critical health",
+        NextAction::array(0, new NextAction("penance on party", ACTION_CRITICAL_HEAL + 2), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "party member low health",
+        NextAction::array(0, new NextAction("penance on party", ACTION_MEDIUM_HEAL + 3), NULL)));
+#endif
+
+#ifndef MANGOSBOT_ZERO
+
+    triggers.push_back(new TriggerNode(
+        "party member critical health",
+        NextAction::array(0, new NextAction("binding heal", ACTION_CRITICAL_HEAL + 2), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "party member low health",
+        NextAction::array(0, new NextAction("binding heal", ACTION_MEDIUM_HEAL + 4), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "party member medium health",
+        NextAction::array(0, new NextAction("binding heal", ACTION_MEDIUM_HEAL + 1), NULL)));
+#endif
+
+#ifdef MANGOSBOT_TWO
+
+    triggers.push_back(new TriggerNode(
+        "critical health",
+        NextAction::array(0, new NextAction("penance", ACTION_CRITICAL_HEAL + 2), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "low health",
+        NextAction::array(0, new NextAction("penance", ACTION_MEDIUM_HEAL + 3), NULL)));
+#endif
 }
 
 void DisciplinePriestStrategy::InitReactionTriggers(std::list<TriggerNode*>& triggers)
@@ -917,6 +1224,14 @@ void DisciplinePriestAoeStrategy::InitCombatTriggers(std::list<TriggerNode*>& tr
 void DisciplinePriestAoeStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     PriestAoeStrategy::InitNonCombatTriggers(triggers);
+
+    triggers.push_back(new TriggerNode(
+        "medium aoe heal",
+        NextAction::array(0, new NextAction("prayer of mending", ACTION_MEDIUM_HEAL + 1), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "medium aoe heal",
+        NextAction::array(0, new NextAction("prayer of healing", ACTION_MEDIUM_HEAL), NULL)));
 }
 
 void DisciplinePriestAoePveStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -958,11 +1273,32 @@ void DisciplinePriestAoeRaidStrategy::InitNonCombatTriggers(std::list<TriggerNod
 void DisciplinePriestBuffStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     PriestBuffStrategy::InitCombatTriggers(triggers);
+
+#ifndef MANGOSBOT_ZERO
+
+    triggers.push_back(new TriggerNode(
+        "often",
+        NextAction::array(0, new NextAction("prayer of mending", ACTION_HIGH), NULL)));
+#endif
+
+#ifdef MANGOSBOT_TWO
+
+    triggers.push_back(new TriggerNode(
+        "low mana",
+        NextAction::array(0, new NextAction("hymn of hope", ACTION_HIGH - 1), NULL)));
+#endif
 }
 
 void DisciplinePriestBuffStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     PriestBuffStrategy::InitNonCombatTriggers(triggers);
+
+#ifndef MANGOSBOT_ZERO
+
+    triggers.push_back(new TriggerNode(
+        "often",
+        NextAction::array(0, new NextAction("prayer of mending", ACTION_NORMAL), NULL)));
+#endif
 }
 
 void DisciplinePriestBuffPveStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)

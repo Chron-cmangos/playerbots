@@ -3,46 +3,113 @@
 #include "playerbot/strategy/generic/PullStrategy.h"
 #include "playerbot/strategy/values/AttackersValue.h"
 #include "PullActions.h"
+#include "PullDiagnostics.h"
+#include "BotCommandAccess.h"
 #include "playerbot/strategy/values/PositionValue.h"
 
 using namespace ai;
 
+const char* ai::PullFailureReason(PullFailure failure)
+{
+    switch (failure)
+    {
+        case PullFailure::None: return "ready";
+        case PullFailure::NoTarget: return "no hostile target selected";
+        case PullFailure::InvalidTarget: return "target cannot be pulled";
+        case PullFailure::StrategyDisabled: return "pull strategy is disabled";
+        case PullFailure::NoAction: return "no pull action is available";
+        case PullFailure::NoRangedWeapon: return "no usable ranged weapon";
+        case PullFailure::NoAmmo: return "ammunition is required";
+        case PullFailure::OutOfRange: return "target is outside pull range";
+        case PullFailure::NoLineOfSight: return "no line of sight";
+        case PullFailure::NotKnown: return "pull spell is not known";
+        case PullFailure::NotReady: return "pull spell is on cooldown";
+        case PullFailure::InvalidState: return "current state prevents the pull";
+        default: return "configured pull action is unavailable";
+    }
+}
+
+PullFailure ai::GetPullReadiness(PlayerbotAI* ai, Unit* target)
+{
+    PullStrategy* strategy = PullStrategy::Get(ai);
+    if (!strategy) return PullFailure::StrategyDisabled;
+    Player* bot = ai->GetBot();
+    if (!bot->IsInWorld() || !bot->IsAlive() || bot->IsBeingTeleported() || bot->HasCharmer())
+        return PullFailure::InvalidState;
+    if (!target) return PullFailure::NoTarget;
+    if (!AttackersValue::IsValid(target, bot, nullptr, false)) return PullFailure::InvalidTarget;
+    // Match the existing request gate; this diagnostic does not change which
+    // classes currently require the ranged equipment slot to be populated.
+    if (bot->getClass() != CLASS_DRUID && bot->getClass() != CLASS_PALADIN &&
+        !bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_RANGED))
+        return PullFailure::NoRangedWeapon;
+    if (strategy->GetPullActionName().empty() ||
+        !ai->GetAiObjectContext()->GetAction(strategy->GetPullActionName())) return PullFailure::NoAction;
+    SpellCastResult result = SPELL_CAST_OK;
+    const bool possible = ai->CanCastSpell(strategy->GetSpellName(), target, 0, nullptr, false, false, false, &result);
+    switch (result)
+    {
+        case SPELL_FAILED_NEED_AMMO:
+        case SPELL_FAILED_NO_AMMO: return PullFailure::NoAmmo;
+        case SPELL_FAILED_EQUIPPED_ITEM:
+        case SPELL_FAILED_EQUIPPED_ITEM_CLASS: return PullFailure::NoRangedWeapon;
+        case SPELL_FAILED_OUT_OF_RANGE:
+        case SPELL_FAILED_TOO_CLOSE: return PullFailure::OutOfRange;
+        case SPELL_FAILED_LINE_OF_SIGHT: return PullFailure::NoLineOfSight;
+        case SPELL_FAILED_NOT_KNOWN: return PullFailure::NotKnown;
+        case SPELL_FAILED_NOT_READY: return PullFailure::NotReady;
+        case SPELL_CAST_OK: return possible ? PullFailure::None : PullFailure::Unavailable;
+        default: return PullFailure::InvalidState;
+    }
+}
+
 bool PullRequestAction::Execute(Event& event)
 {
+    Player* requester = event.getOwner() ? event.getOwner() : GetMaster();
+    auto fail = [&](PullFailure reason) {
+        if ((event.getSource() == "pull" || event.getSource() == "pull rti") && CanManageBotCommands(ai, requester))
+            ai->TellPlayerNoFacing(requester, std::string("Pull failed: ") + PullFailureReason(reason) + ".",
+                PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, true, true, true, true);
+        return false;
+    };
     PullStrategy* strategy = PullStrategy::Get(ai);
     if (!strategy)
     {
-        return false;
+        return fail(PullFailure::StrategyDisabled);
     }
-
-    Player* requester = event.getOwner() ? event.getOwner() : GetMaster();
 
     Unit* target = GetTarget(event);
     if (!target)
     {
-        ai->TellPlayerNoFacing(requester, "You have no target");
-        return false;
+        return fail(PullFailure::NoTarget);
     }
 
     const float maxPullDistance = sPlayerbotAIConfig.reactDistance * 3;
     const float distanceToPullTarget = target->GetDistance(ai->GetBot());
     if (distanceToPullTarget > maxPullDistance)
     {
-        ai->TellPlayerNoFacing(requester, "The target is too far away");
-        return false;
+        return fail(PullFailure::OutOfRange);
     }
 
     if (!AttackersValue::IsValid(target, bot, nullptr, false))
     {
-        ai->TellPlayerNoFacing(requester, "The target can't be pulled");
-        return false;
+        return fail(PullFailure::InvalidTarget);
     }
 
+    // A previous command must never leave this request in fallback mode.
+    strategy->SetBodyPull(false);
     if (!strategy->CanDoPullAction(target))
     {
-        std::ostringstream out; out << "Can't perform pull action '" << strategy->GetPullActionName() << "'";
-        ai->TellPlayerNoFacing(requester, out.str());
-        return false;
+        const PullFailure reason = GetPullReadiness(ai, target);
+        const bool explicitRequest = (event.getSource() == "pull" || event.getSource() == "pull rti") &&
+            CanManageBotCommands(ai, requester);
+        const bool missingRanged = reason == PullFailure::NoRangedWeapon ||
+            reason == PullFailure::NoAmmo || reason == PullFailure::NotKnown;
+        if (!sPlayerbotAIConfig.explicitBodyPull || !explicitRequest || !missingRanged ||
+            !bot->IsAlive() || bot->HasCharmer() || bot->IsBeingTeleported())
+            return fail(reason == PullFailure::None ? PullFailure::Unavailable : reason);
+        strategy->SetBodyPull(true);
+        ai->TellPlayerNoFacing(requester, "No usable ranged pull; approaching for a melee pull.");
     }
 
     //Set position to return to after pulling.
@@ -53,6 +120,7 @@ bool PullRequestAction::Execute(Event& event)
     posMap["pull"] = pullPosition;
 
     strategy->RequestPull(target);
+    strategy->SetRequester(requester ? requester->GetObjectGuid() : ObjectGuid());
 
     // Force change combat state to have a faster reaction time
     ai->OnCombatStarted();
@@ -106,7 +174,7 @@ bool PullStartAction::Execute(Event& event)
             if (pet)
             {
                 UnitAI* creatureAI = ((Creature*)pet)->AI();
-                if (creatureAI)
+                if (creatureAI && !strategy->HasSavedPetReactState())
                 {
                     strategy->SetPetReactState(creatureAI->GetReactState());
                     creatureAI->SetReactState(REACT_PASSIVE);
@@ -136,15 +204,33 @@ bool PullAction::Execute(Event& event)
         Unit* target = strategy->GetTarget();
         if (target)
         {
+            if ((strategy->IsBodyPull() || ai->IsMelee(bot)) && bot->CanReachWithMeleeAttack(target))
+            {
+                SET_AI_VALUE(ObjectGuid, "current target", target->GetObjectGuid());
+                if (ai->DoSpecificAction("melee", event, true))
+                {
+                    strategy->OnPullActionIssued();
+                    return true;
+                }
+                return false;
+            }
+            if (strategy->IsBodyPull())
+            {
+                Event approach("reach pull");
+                return ai->DoSpecificAction("reach pull", approach, true);
+            }
             // Check if we are on pull range
             const float distanceToTarget = target->GetDistance(bot);
-            if (distanceToTarget <= strategy->GetRange())
+            // Being in range does not mean the approach is complete. In
+            // particular, do not cancel a chase around a pillar or up stairs
+            // before the same LOS check used by Shoot accepts the position.
+            if (distanceToTarget <= strategy->GetRange() && sServerFacade.IsWithinLOSInMap(bot, target))
             {
                 if (sServerFacade.isMoving(bot))
                 {
                     // Force stop
                     ai->StopMoving();
-                    strategy->RequestPull(target, false);
+                    // The shot trigger will retry after movement has stopped.
                     return false;
                 }
 
@@ -154,21 +240,28 @@ bool PullAction::Execute(Event& event)
                 SET_AI_VALUE(ObjectGuid, "current target", GetTarget()->GetObjectGuid());
                 if (ai->DoSpecificAction(actionName, event, true))
                 {
-                    strategy->RequestPull(target); //extend pull timer to walk back.
+                    strategy->OnPullActionIssued(); // One accepted shot; keep the original deadline.
                     return true;
                 }
                 else
                     return false;
             }
-            else
-            {
-                // Retry the reach pull action
-                strategy->RequestPull(target, false);
-            }
+            // If range or LOS is still blocked, retain the running approach.
+            // The shot trigger schedules another reach/cast decision without
+            // repeating pre-pull buffs or extending the command deadline.
         }
     }
 
     return false;
+}
+
+bool PullAction::isUseful()
+{
+    // This action can outlive a weapon or strategy change. Refresh the
+    // strategy's spell before the inherited capability check runs.
+    InitPullAction();
+    PullStrategy* strategy = PullStrategy::Get(ai);
+    return strategy && !strategy->HasPullActionIssued() && (strategy->IsBodyPull() || CastSpellAction::isUseful());
 }
 
 bool PullAction::isPossible()
@@ -178,11 +271,14 @@ bool PullAction::isPossible()
     PullStrategy* strategy = PullStrategy::Get(ai);
     if (strategy)
     {
-        std::string spellName = strategy->GetSpellName();
         Unit* target = strategy->GetTarget();
+        if (strategy->IsBodyPull()) return target && target->IsAlive() && bot->IsInMap(target);
+        std::string spellName = strategy->GetSpellName();
         if (!spellName.empty() && target)
         {
-            if (!ai->CanCastSpell(spellName, target, true, nullptr, true))
+            if ((strategy->IsBodyPull() || ai->IsMelee(bot)) && bot->CanReachWithMeleeAttack(target))
+                return true;
+            if (!ai->CanCastSpell(spellName, target, 0, nullptr, true))
             {
                 return false;
             }
@@ -217,12 +313,17 @@ bool PullEndAction::Execute(Event& event)
     PullStrategy* strategy = PullStrategy::Get(ai);
     if (strategy)
     {
+        Unit* pullTarget = strategy->GetTarget();
+        const bool engaged = pullTarget && pullTarget->IsInWorld() && bot->IsInMap(pullTarget) &&
+            pullTarget->IsAlive() && pullTarget->IsInCombat();
+        const bool expired = time(nullptr) - strategy->GetPullStartTime() >= strategy->GetMaxPullTime();
+        const ObjectGuid requesterGuid = strategy->GetRequester();
         // Restore the pet react state
         Pet* pet = bot->GetPet();
         if (pet)
         {
             UnitAI* creatureAI = ((Creature*)pet)->AI();
-            if (creatureAI)
+            if (creatureAI && strategy->HasSavedPetReactState())
             {
                 creatureAI->SetReactState(strategy->GetPetReactState());
                 Unit* target = ai->GetUnit(AI_VALUE(ObjectGuid, "current target"));
@@ -241,6 +342,21 @@ bool PullEndAction::Execute(Event& event)
         }
 
         strategy->OnPullEnded();
+        if (engaged)
+        {
+            SET_AI_VALUE(ObjectGuid, "current target", pullTarget->GetObjectGuid());
+            ai->OnCombatStarted();
+            // Uses ordinary attack/encounter validation, not fabricated threat.
+            if (ai->IsMelee(bot)) ai->DoSpecificAction("melee", event, true);
+        }
+        else if (expired)
+        {
+            if (ai->GetUnit(AI_VALUE(ObjectGuid, "current target")) == pullTarget)
+                SET_AI_VALUE(ObjectGuid, "current target", ObjectGuid());
+            Unit* requester = requesterGuid ? ai->GetUnit(requesterGuid) : nullptr;
+            if (requester && requester->IsPlayer())
+                ai->TellPlayerNoFacing(static_cast<Player*>(requester), "Pull stopped: the target did not engage before the timeout.");
+        }
         return true;
     }
 

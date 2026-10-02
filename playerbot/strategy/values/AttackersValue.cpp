@@ -1,5 +1,6 @@
 
 #include "playerbot/playerbot.h"
+#include "BotReliabilityValue.h"
 #include "AttackersValue.h"
 #include "PossibleTargetsValue.h"
 #include "EnemyPlayerValue.h"
@@ -26,7 +27,7 @@ std::list<ObjectGuid> AttackersValue::Calculate()
     if (bot->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_CLIENT_CONTROL_LOST))
         return result;
 
-    if (ai->HasStrategy("focus rti targets", BotState::BOT_STATE_COMBAT))
+    if (!ai->IsTank(bot) && ai->HasStrategy("focus rti targets", BotState::BOT_STATE_COMBAT))
     {
         Unit* rtiTarget = ai->GetUnit(AI_VALUE(ObjectGuid, "rti target"));
 
@@ -38,96 +39,11 @@ std::list<ObjectGuid> AttackersValue::Calculate()
         return result;
     }
 
-    if (sPlayerbotAIConfig.shareTargets)
-    {
-        // Try to get the value from nearby friendly bots.
-        std::list<ObjectGuid> nearGuids = ai->GetAiObjectContext()->GetValue<std::list<ObjectGuid> >("nearest friendly players")->Get();
-        for (auto& i : nearGuids)
-        {
-            Player* player = sObjectMgr.GetPlayer(i);
-
-            if (!player)
-                continue;
-
-            if (player == bot)
-                continue;
-
-            if (!ai->IsSafe(player))
-                continue;
-
-            if (sServerFacade.GetDistance2d(bot, player) > 10.0f)
-                continue;
-
-            PlayerbotAI* botAi = player->GetPlayerbotAI();
-
-            if (!botAi)
-                continue;
-
-            std::string valueName = "attackers" + !qualifier.empty() ? "::" + qualifier : "";
-
-            // Ignore bots without the value.
-            if (!PHAS_AI_VALUE(valueName))
-                continue;
-
-            UntypedValue* pValue = botAi->GetAiObjectContext()->GetUntypedValue(valueName);
-
-            AttackersValue* pAttackersValue = dynamic_cast<AttackersValue*>(pValue);
-
-            if (!pAttackersValue)
-                continue;
-
-            // Ignore expired values.
-            if (pAttackersValue->Expired())
-                continue;
-
-            if (pAttackersValue->calculatePos.sqDistance2d(bot) > 100.0f)
-                continue;
-
-            // Make the value expire at the same time as the copied value.
-            lastCheckTime = pAttackersValue->lastCheckTime;
-
-            calculatePos = pAttackersValue->calculatePos;
-
-            result = PAI_VALUE(std::list<ObjectGuid>, valueName);
-
-            std::vector<std::string> specificTargetNames = { "current target","old target","attack target","pull target" };
-            Unit* target;
-
-            //Remove bot specific targets of the other bot.
-            for (auto& targetName : specificTargetNames)
-            {
-                target = ai->GetUnit(PAI_VALUE(ObjectGuid, targetName));
-                if (target)
-                    result.remove(target->GetObjectGuid());
-            }
-
-            //Add bot specific targets of this bot.
-            for (auto& targetName : specificTargetNames)
-            {
-                target = ai->GetUnit(PAI_VALUE(ObjectGuid, targetName));
-                if (target)
-                    result.push_back(target->GetObjectGuid());
-            }
-
-            //Validate these targets.
-            std::list<ObjectGuid> filter;
-
-            for (auto& guid : result)
-            {
-                target = ai->GetUnit(guid);
-
-                if (!IsValid(target, bot, bot))
-                    filter.push_back(guid);
-            }
-
-            for(auto& guid : filter)
-                result.remove(guid);
-
-            return result;
-        }
-    }
-    
-    calculatePos = bot;
+    // Keep the established owner/group/master aggregation below. The retired
+    // ShareTargets shortcut queried "::<qualifier>", never "attackers".
+    // Merely correcting that key would enable foreign-owner caches and could
+    // drop this bot's attackers, duel and pet threats. Remove the ineffective
+    // lookup instead of making that unsafe shortcut part of combat behavior.
 
     std::set<Unit*> targets;
 
@@ -369,12 +285,6 @@ bool AttackersValue::IsValid(Unit* target, Player* player, Player* owner, bool c
             {
                 return false;
             }
-
-            // If the enemy player can't be reached (e.g. under the map)
-            if (!EnemyPlayersValue::IsReachable(enemyPlayer, playerToCheckAgainst))
-            {
-                return false;
-            }
         }
     }
     // If the target is a NPC
@@ -425,6 +335,8 @@ bool AttackersValue::IgnoreTarget(Unit* target, Player* playerToCheckAgainst)
 
     PlayerbotAI* ai = playerToCheckAgainst->GetPlayerbotAI();
     AiObjectContext* context = ai->GetAiObjectContext();
+
+    if (IsUnreachableTarget(ai, target)) return true;
 
     //Ignore Hard hostiles while not already fighting.
     if (target->GetLevel() > (playerToCheckAgainst->GetLevel() + 5) && ai->GetState() == BotState::BOT_STATE_NON_COMBAT)

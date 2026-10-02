@@ -2,6 +2,7 @@
 
 #include "playerbot/strategy/Action.h"
 #include "MovementActions.h"
+#include "playerbot/strategy/values/BotReliabilityValue.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/ServerFacade.h"
 #include "playerbot/strategy/generic/PullStrategy.h"
@@ -53,12 +54,17 @@ namespace ai
                     chaseDist = (chaseDist - sPlayerbotAIConfig.contactDistance);
                 }
 
-                if (MoveStyleValue::WaitForEnemy(ai) && !ai->GetUnit(AI_VALUE(ObjectGuid, "rti cc target")) && target->m_movementInfo.HasMovementFlag(movementFlagsMask) &&
+                if (CanWaitForEnemy() && !isFriend && MoveStyleValue::WaitForEnemy(ai) && !ai->GetUnit(AI_VALUE(ObjectGuid, "rti cc target")) && target->m_movementInfo.HasMovementFlag(movementFlagsMask) &&
                         sServerFacade.IsInFront(target, bot, sPlayerbotAIConfig.sightDistance, CAST_ANGLE_IN_FRONT) &&
                         sServerFacade.IsDistanceGreaterThan(distanceToTarget, sPlayerbotAIConfig.tooCloseDistance))
                 {
+                    // This action instance can retain a previous long movement duration.
+                    // Waiting for an approaching enemy needs a normal decision recheck.
+                    SetDuration(sPlayerbotAIConfig.reactDelay);
                     return true;
                 }                 
+
+                if (ObserveUnreachableTarget(ai, target)) return false;
 
                 if (ai->HasStrategy("debug move", BotState::BOT_STATE_NON_COMBAT))
                 {
@@ -92,7 +98,7 @@ namespace ai
                     if (!bot->IsNonMeleeSpellCasted(true, false, true))
                     {
                         // Check if the spell for which the reach action is used for can be casted
-                        if (!spellName.empty() && !ai->CanCastSpell(spellName, target, true, nullptr, true, true, true))
+                        if (!spellName.empty() && !ai->CanCastSpell(spellName, target, 0, nullptr, true, true, true))
                         {
                             return false;
                         }
@@ -136,6 +142,7 @@ namespace ai
         }
 
     protected:
+        virtual bool CanWaitForEnemy() const { return true; }
         float range;
         std::string spellName;
     };
@@ -191,7 +198,28 @@ namespace ai
             range = range > threshold ? range - threshold : range;
         }
 
+        bool isUseful() override
+        {
+            PullStrategy* strategy = PullStrategy::Get(ai);
+            if (!strategy || strategy->HasPullActionIssued()) return false;
+            spellName = strategy->IsBodyPull() ? "" : strategy->GetSpellName();
+            range = strategy->GetRange();
+            if (range > 5.0f) range -= 5.0f;
+            float maximum = 0.0f, minimum = 0.0f;
+            Unit* target = GetTarget();
+            if (target && ai->IsMelee(bot) && ai->GetSpellRange(spellName, &maximum, &minimum) &&
+                target->GetDistance(bot, true, DIST_CALC_COMBAT_REACH) < minimum)
+            {
+                range = 0.0f;
+                spellName.clear(); // Close the ranged dead zone using native melee movement.
+            }
+            return ReachTargetAction::isUseful();
+        }
+
         std::string GetTargetName() override { return "pull target"; }
+
+    protected:
+        bool CanWaitForEnemy() const override { return false; }
     };
 
     class ReachPartyMemberToHealAction : public ReachTargetAction

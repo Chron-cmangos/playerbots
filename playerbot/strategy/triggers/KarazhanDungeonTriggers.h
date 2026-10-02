@@ -4,6 +4,19 @@
 
 namespace ai
 {
+    class KarazhanPriorityTargetTrigger : public Trigger
+    {
+    public:
+        KarazhanPriorityTargetTrigger(PlayerbotAI* ai) : Trigger(ai, "karazhan priority target", 1) {}
+        bool IsActive() override;
+    };
+
+    class AranFlameWreathTrigger : public Trigger
+    {
+    public:
+        AranFlameWreathTrigger(PlayerbotAI* ai) : Trigger(ai, "aran hold position", 1) {}
+        bool IsActive() override;
+    };
 	class KarazhanEnterDungeonTrigger : public EnterDungeonTrigger
 	{
 	public:
@@ -34,37 +47,11 @@ namespace ai
 		VoidZoneTooCloseTrigger(PlayerbotAI* ai) : CloseToCreatureHazardTrigger(ai, "void zone too close", 16697, 5.0f, 99999999.0f) {}
 	};
 
-	class NetherspiteBeamsCheatNeedRefreshTrigger : public Trigger
+    class NetherspiteBeamPositionTrigger : public Trigger
 	{
 	public:
-		NetherspiteBeamsCheatNeedRefreshTrigger(PlayerbotAI* ai, int checkInteval = 2) : Trigger(ai, "netherspite beams cheat need refresh", checkInteval) {}
+        NetherspiteBeamPositionTrigger(PlayerbotAI* ai) : Trigger(ai, "netherspite beam position", 1) {}
 		bool IsActive() override;
-	};
-
-	class RemoveNetherPortalDominanceTrigger : public HasAuraTrigger
-	{
-	public:
-		RemoveNetherPortalDominanceTrigger(PlayerbotAI* ai) : HasAuraTrigger(ai, "remove nether portal - dominance", 20) {}
-	};
-
-	class RemoveNetherPortalPerseverenceTrigger : public Trigger
-	{
-	public:
-		RemoveNetherPortalPerseverenceTrigger(PlayerbotAI* ai) : Trigger(ai, "remove nether portal - perseverence", 1) {}
-		bool IsActive() override
-		{
-			//Bot is not tank with aggro
-			if (ai->IsTank(bot) && AI_VALUE2(bool, "has aggro", "current target"))
-				return false;
-
-			return ai->HasAura(30421, bot);
-		}
-	};
-
-	class RemoveNetherPortalSerenityTrigger : public HasAuraTrigger
-	{
-	public:
-		RemoveNetherPortalSerenityTrigger(PlayerbotAI* ai) : HasAuraTrigger(ai, "remove nether portal - serenity", 5) {}
 	};
 
 	class PrinceMalchezaarStartFightTrigger : public StartBossFightTrigger

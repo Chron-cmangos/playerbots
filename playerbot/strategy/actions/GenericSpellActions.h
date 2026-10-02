@@ -1,4 +1,5 @@
 #pragma once
+#include "playerbot/strategy/CasterCombatPolicy.h"
 #include "playerbot/strategy/Action.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/PlayerbotAI.h"
@@ -9,20 +10,24 @@ namespace ai
     {
     public:
         CastSpellAction(PlayerbotAI* ai, std::string spell);
-        virtual ActionThreatType getThreatType() override { return ActionThreatType::ACTION_THREAT_SINGLE; }
+        virtual ActionThreatType getThreatType() override;
         virtual bool Execute(Event& event) override;
         virtual bool isPossible() override;
-		virtual bool isUseful() override;
+        virtual bool isUseful() override;
+        bool ShouldTryAlternativesWhenUseless() override;
 
         // Used when this action is executed as a reaction
         bool ShouldReactionInterruptCast() const override { return true; }
 
         bool HasReachAction() { return !GetReachActionName().empty(); }
+        bool HasMovementEffect();
+        uint32 GetDecisionSpellId() { RefreshSpellId(); return spellId; }
         
     protected:
         const uint32& GetSpellID() const { return spellId; }
         const std::string& GetSpellName() const { return spellName; }
         void SetSpellName(const std::string& name, std::string spellIDContextName = "spell id", bool force = false);
+        void RefreshSpellId();
 
         Unit* GetTarget() override;
         virtual std::string GetTargetName() override { return "current target"; }
@@ -36,7 +41,8 @@ namespace ai
 
     private:
         std::string spellName;
-        uint32 spellId;
+        uint32 spellId = 0;
+        std::string spellIdContext = "spell id";
     };
 
     class CastPetSpellAction : public CastSpellAction
@@ -141,7 +147,7 @@ namespace ai
         
     protected:
         virtual std::string GetReachActionName() override { return "reach spell"; }
-        virtual std::string GetTargetName() override { return "attacker without aura"; }
+        virtual std::string GetTargetName() override { return CasterPersonalDot(GetSpellName()) ? "attacker without my aura" : "attacker without aura"; }
         virtual std::string GetTargetQualifier() override { return GetSpellName(); }
         virtual std::string getName() override { return GetSpellName() + " on attacker"; }
         virtual ActionThreatType getThreatType() override { return ActionThreatType::ACTION_THREAT_AOE; }
@@ -200,23 +206,18 @@ namespace ai
     class CastHealingSpellAction : public CastAuraSpellAction
     {
     public:
-        CastHealingSpellAction(PlayerbotAI* ai, std::string spell, uint8 estAmount = 15.0f) : CastAuraSpellAction(ai, spell, true), estAmount(estAmount) {}
+        CastHealingSpellAction(PlayerbotAI* ai, std::string spell, uint8 estAmount = 15.0f, bool allowAuraRefresh = false) : CastAuraSpellAction(ai, spell, true), estAmount(estAmount), allowAuraRefresh(allowAuraRefresh) {}
+        bool Execute(Event& event) override;
         
     protected:
         virtual ActionThreatType getThreatType() override { return ActionThreatType::ACTION_THREAT_AOE; }
         virtual std::string GetTargetName() override { return "self target"; }
         virtual std::string GetReachActionName() override { return "reach party member to heal"; }
-        virtual bool isUseful() override 
-        {
-            // do not heal if they will not receive healing due to debuff
-            Unit* target = ai->GetUnit(AI_VALUE(ObjectGuid, GetTargetName()));
-            if (target && target->GetMaxNegativeAuraModifier(SPELL_AURA_MOD_HEALING_PCT) <= -100)
-                return false;
-            return CastAuraSpellAction::isUseful();
-        }
+        bool isUseful() override;
 
     protected:
         uint8 estAmount;
+        bool allowAuraRefresh;
     };
 
     class CastAoeHealSpellAction : public CastHealingSpellAction
@@ -279,7 +280,10 @@ namespace ai
         virtual std::string GetReachActionName() override { return "reach party member to heal"; }
         virtual std::string getName() override { return PartyMemberActionNameSupport::getName(); }
         virtual std::string GetTargetName() override { return "party member to dispel"; }
-        virtual std::string GetTargetQualifier() override { return std::to_string(dispelType); }
+        // Include the intended spell: e.g. Cleanse also removes disease when
+        // selected for poison/magic. The selector must not choose a target that
+        // the execution-time encounter guard will repeatedly reject.
+        virtual std::string GetTargetQualifier() override { return std::to_string(dispelType) + "," + GetSpellName(); }
 
     protected:
         uint32 dispelType;
@@ -345,12 +349,21 @@ namespace ai
         virtual std::string GetTargetQualifier() override { return GetSpellName(); }
     };
 
+    class TankThreatTransferAction : public BuffOnTankAction
+    {
+    public:
+        TankThreatTransferAction(PlayerbotAI* ai, std::string spell) : BuffOnTankAction(ai, spell) {}
+        Unit* GetTarget() override;
+        bool isUseful() override;
+    };
+
     class CastShootAction : public CastSpellAction
     {
     public:
         CastShootAction(PlayerbotAI* ai) : CastSpellAction(ai, "shoot"), rangedWeapon(nullptr), weaponDelay(0), needsAmmo(false) {}
         ActionThreatType getThreatType() override { return ActionThreatType::ACTION_THREAT_LOW; }
         bool Execute(Event& event) override;
+        bool isUseful() override;
         bool isPossible() override;
 
     protected:
@@ -411,7 +424,7 @@ namespace ai
     //cc breakers
 
     BUFF_ACTION(CastWillOfTheForsakenAction, "will of the forsaken");
-    BUFF_ACTION_U(CastEscapeArtistAction, "escape artist", !ai->HasAura("stealth", ai->GetUnit(AI_VALUE(ObjectGuid, "self target"))));
+    BUFF_ACTION_U(CastEscapeArtistAction, "escape artist", CastBuffSpellAction::isUseful() && !ai->HasAura("stealth", ai->GetUnit(AI_VALUE(ObjectGuid, "self target"))));
 
 #ifdef MANGOSBOT_TWO
     SPELL_ACTION(CastEveryManforHimselfAction, "every man for himself");

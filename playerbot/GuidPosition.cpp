@@ -119,11 +119,11 @@ const FactionTemplateEntry* GuidPosition::GetFactionTemplateEntry() const
 
 const ReputationRank GuidPosition::GetReactionTo(const GuidPosition& other, uint32 instanceId) const
 {
+    // A diagnostic GUID can outlive its player or creature-template metadata.
     const FactionTemplateEntry* thisTemplate = GetFactionTemplateEntry();
     const FactionTemplateEntry* otherTemplate = other.GetFactionTemplateEntry();
-
     if (!thisTemplate || !otherTemplate)
-        return REP_FRIENDLY; // No faction data (e.g. charmed creature without faction): default to friendly, not a crash
+        return REP_NEUTRAL;
 
     if(other.IsUnit() && other.GetUnit(instanceId))
         if (other.GetUnit(instanceId)->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_PLAYER_CONTROLLED))

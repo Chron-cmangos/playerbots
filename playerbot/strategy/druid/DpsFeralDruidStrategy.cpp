@@ -352,6 +352,11 @@ void DpsFeralDruidBuffRaidStrategy::InitNonCombatTriggers(std::list<TriggerNode*
 
 void DpsFeralDruidBoostStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
+#if defined(MANGOSBOT_TWO)
+
+    triggers.push_back(new TriggerNode("very often", NextAction::array(0, new NextAction("berserk", ACTION_HIGH + 4), nullptr)));
+#endif
+
     DruidBoostStrategy::InitCombatTriggers(triggers);
 }
 
@@ -398,6 +403,11 @@ void DpsFeralDruidBoostRaidStrategy::InitNonCombatTriggers(std::list<TriggerNode
 
 void DpsFeralDruidCcStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
+#if !defined(MANGOSBOT_ZERO)
+
+    triggers.push_back(new TriggerNode("very often", NextAction::array(0, new NextAction("maim", ACTION_INTERRUPT), nullptr)));
+#endif
+
     DruidCcStrategy::InitCombatTriggers(triggers);
 }
 
@@ -505,7 +515,7 @@ void DpsFeralDruidStealthStrategy::InitCombatTriggers(std::list<TriggerNode*>& t
         NextAction::array(0, new NextAction("pounce", ACTION_NORMAL + 3), NULL)));
 
     triggers.push_back(new TriggerNode(
-        "not behind target",
+        "behind target",
         NextAction::array(0, new NextAction("ravage", ACTION_NORMAL + 2), NULL)));
 
     triggers.push_back(new TriggerNode(
@@ -847,6 +857,11 @@ void DpsFeralDruidBuffRaidStrategy::InitNonCombatTriggers(std::list<TriggerNode*
 
 void DpsFeralDruidBoostStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
+#if defined(MANGOSBOT_TWO)
+
+    triggers.push_back(new TriggerNode("very often", NextAction::array(0, new NextAction("berserk", ACTION_HIGH + 4), nullptr)));
+#endif
+
     DruidBoostStrategy::InitCombatTriggers(triggers);
 }
 
@@ -893,6 +908,11 @@ void DpsFeralDruidBoostRaidStrategy::InitNonCombatTriggers(std::list<TriggerNode
 
 void DpsFeralDruidCcStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
+#if !defined(MANGOSBOT_ZERO)
+
+    triggers.push_back(new TriggerNode("very often", NextAction::array(0, new NextAction("maim", ACTION_INTERRUPT), nullptr)));
+#endif
+
     DruidCcStrategy::InitCombatTriggers(triggers);
 }
 
@@ -1000,7 +1020,7 @@ void DpsFeralDruidStealthStrategy::InitCombatTriggers(std::list<TriggerNode*>& t
         NextAction::array(0, new NextAction("pounce", ACTION_NORMAL + 3), NULL)));
 
     triggers.push_back(new TriggerNode(
-        "not behind target",
+        "behind target",
         NextAction::array(0, new NextAction("ravage", ACTION_NORMAL + 2), NULL)));
 
     triggers.push_back(new TriggerNode(
@@ -1078,6 +1098,9 @@ NextAction** DpsFeralDruidStrategy::GetDefaultCombatActions()
 void DpsFeralDruidStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     DruidStrategy::InitCombatTriggers(triggers);
+    triggers.push_back(new TriggerNode(
+        "savage roar",
+        NextAction::array(0, new NextAction("savage roar", ACTION_HIGH + 3), NULL)));
 
     triggers.push_back(new TriggerNode(
         "rebirth",
@@ -1346,6 +1369,11 @@ void DpsFeralDruidBuffRaidStrategy::InitNonCombatTriggers(std::list<TriggerNode*
 
 void DpsFeralDruidBoostStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
+#if defined(MANGOSBOT_TWO)
+
+    triggers.push_back(new TriggerNode("very often", NextAction::array(0, new NextAction("berserk", ACTION_HIGH + 4), nullptr)));
+#endif
+
     DruidBoostStrategy::InitCombatTriggers(triggers);
 }
 
@@ -1392,6 +1420,11 @@ void DpsFeralDruidBoostRaidStrategy::InitNonCombatTriggers(std::list<TriggerNode
 
 void DpsFeralDruidCcStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
+#if !defined(MANGOSBOT_ZERO)
+
+    triggers.push_back(new TriggerNode("very often", NextAction::array(0, new NextAction("maim", ACTION_INTERRUPT), nullptr)));
+#endif
+
     DruidCcStrategy::InitCombatTriggers(triggers);
 }
 
@@ -1499,7 +1532,7 @@ void DpsFeralDruidStealthStrategy::InitCombatTriggers(std::list<TriggerNode*>& t
         NextAction::array(0, new NextAction("pounce", ACTION_NORMAL + 3), NULL)));
 
     triggers.push_back(new TriggerNode(
-        "not behind target",
+        "behind target",
         NextAction::array(0, new NextAction("ravage", ACTION_NORMAL + 2), NULL)));
 
     triggers.push_back(new TriggerNode(

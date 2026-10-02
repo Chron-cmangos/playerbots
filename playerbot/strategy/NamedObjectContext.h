@@ -5,6 +5,7 @@
 #include <set>
 #include <list>
 #include <map>
+#include <mutex>
 
 namespace ai
 {
@@ -152,7 +153,23 @@ namespace ai
     {
     protected:
         using ActionCreator = std::function<T* (PlayerbotAI* ai)>;
-        std::map<std::string, ActionCreator> creators;
+        using CreatorMap = std::map<std::string, ActionCreator, std::less<>>;
+        CreatorMap creators;
+        CreatorMap const* sharedCreators = nullptr;
+
+        // Opt-in for constructor-only, actor-independent registration tables.
+        // Function-local static initialization publishes one immutable table per
+        // concrete context type. Created actions/values remain per-context.
+        template<class Context, class Initialize>
+        void ShareCreators(Initialize initialize)
+        {
+            static const CreatorMap table = [this, &initialize] {
+                initialize();
+                return std::move(creators);
+            }();
+            sharedCreators = &table;
+        }
+
 
     public:
         T* Create(std::string_view name, PlayerbotAI* ai)
@@ -166,11 +183,18 @@ namespace ai
                 nameView = nameView.substr(0, pos);
             }
 
-            auto it = creators.find(std::string(nameView));
-            if (it == creators.end())
-                return nullptr;
+            // Retain a local overlay for a derived context's extra/overridden
+            // registrations; only explicitly opted-in tables are shared.
+            auto it = creators.find(nameView);
+            ActionCreator const* creator = it != creators.end() ? &it->second : nullptr;
+            if (!creator && sharedCreators)
+            {
+                auto shared = sharedCreators->find(nameView);
+                if (shared != sharedCreators->end()) creator = &shared->second;
+            }
+            if (!creator) return nullptr;
 
-            T* object = it->second(ai);
+            T* object = (*creator)(ai);
             if (object == nullptr)
                 return nullptr;
 
@@ -185,6 +209,9 @@ namespace ai
 
         void GetSupportedKeys(std::set<std::string>& keys) const
         {
+            if (sharedCreators)
+                for (const auto& entry : *sharedCreators)
+                    keys.insert(entry.first);
             for (const auto& entry : creators)
                 keys.insert(entry.first);
         }
@@ -198,12 +225,26 @@ namespace ai
         NamedObjectContext(bool shared = false, bool supportsSiblings = false) :
             NamedObjectFactory<T>(), shared(shared), supportsSiblings(supportsSiblings) {}
 
-        T* Create(std::string name, PlayerbotAI* ai)
+        T* Create(std::string_view name, PlayerbotAI* ai)
         {
-            if (created.find(name) == created.end())
-                return created[name] = NamedObjectFactory<T>::Create(name, ai);
+            // A bot can briefly be visible to two map/update paths while it is
+            // logging in or changing maps. Shared contexts are also queried by
+            // several map workers. Serialise the entire find/create/insert
+            // transaction: concurrent std::map insertion corrupts the RB tree.
+            std::lock_guard<std::recursive_mutex> lock(createdMutex);
+            auto const existing = created.find(name);
+            if (existing == created.end())
+            {
+                // Unsupported qualified names are common probes. Do not cache
+                // nullptr entries forever; those maps otherwise grow as bots
+                // encounter new GUID/item/spell qualifiers.
+                T* object = NamedObjectFactory<T>::Create(name, ai);
+                if (object)
+                    created.emplace(std::string(name), object);
+                return object;
+            }
 
-            return created[name];
+            return existing->second;
         }
 
         virtual ~NamedObjectContext()
@@ -213,7 +254,8 @@ namespace ai
 
         void Clear()
         {
-            for (typename std::map<std::string, T*>::iterator i = created.begin(); i != created.end(); i++)
+            std::lock_guard<std::recursive_mutex> lock(createdMutex);
+            for (typename std::map<std::string, T*, std::less<>>::iterator i = created.begin(); i != created.end(); i++)
             {
                 if (i->second)
                     delete i->second;
@@ -224,16 +266,39 @@ namespace ai
 
         void Erase(const std::string& name)
         {
-            if (created.find(name) != created.end())
+            std::lock_guard<std::recursive_mutex> lock(createdMutex);
+            typename std::map<std::string, T*, std::less<>>::iterator existing = created.find(name);
+            if (existing != created.end())
             {
-                delete created[name];
-                created.erase(name);
+                delete existing->second;
+                created.erase(existing);
             }
+        }
+
+        template <typename Predicate>
+        size_t EraseIf(Predicate predicate)
+        {
+            std::lock_guard<std::recursive_mutex> lock(createdMutex);
+            size_t erased = 0;
+            for (auto existing = created.begin(); existing != created.end();)
+            {
+                if (!predicate(existing->first, existing->second))
+                {
+                    ++existing;
+                    continue;
+                }
+
+                delete existing->second;
+                existing = created.erase(existing);
+                ++erased;
+            }
+            return erased;
         }
 
         void Update()
         {
-            for (typename std::map<std::string, T*>::iterator i = created.begin(); i != created.end(); i++)
+            std::lock_guard<std::recursive_mutex> lock(createdMutex);
+            for (typename std::map<std::string, T*, std::less<>>::iterator i = created.begin(); i != created.end(); i++)
             {
                 if (i->second)
                     i->second->Update();
@@ -242,7 +307,8 @@ namespace ai
 
         void Reset()
         {
-            for (typename std::map<std::string, T*>::iterator i = created.begin(); i != created.end(); i++)
+            std::lock_guard<std::recursive_mutex> lock(createdMutex);
+            for (typename std::map<std::string, T*, std::less<>>::iterator i = created.begin(); i != created.end(); i++)
             {
                 if (i->second)
                     i->second->Reset();
@@ -252,18 +318,46 @@ namespace ai
         bool IsShared() { return shared; }
         bool IsSupportsSiblings() { return supportsSiblings; }
 
-        bool IsCreated(const std::string& name) { return created.find(name) != created.end(); }
+        bool IsCreated(const std::string& name)
+        {
+            std::lock_guard<std::recursive_mutex> lock(createdMutex);
+            return created.find(name) != created.end();
+        }
 
         std::set<std::string> GetCreated()
         {
+            std::lock_guard<std::recursive_mutex> lock(createdMutex);
             std::set<std::string> keys;
-            for (typename std::map<std::string, T*>::iterator it = created.begin(); it != created.end(); it++)
+            for (typename std::map<std::string, T*, std::less<>>::iterator it = created.begin(); it != created.end(); it++)
                 keys.insert(it->first);
             return keys;
         }
 
+        size_t GetCreatedCount() const
+        {
+            std::lock_guard<std::recursive_mutex> lock(createdMutex);
+            return created.size();
+        }
+
+        size_t GetEstimatedCreatedBytes() const
+        {
+            std::lock_guard<std::recursive_mutex> lock(createdMutex);
+            size_t bytes = 0;
+            for (const auto& entry : created)
+            {
+                // std::map node bookkeeping is implementation-specific. Three
+                // links plus the value, owned key storage and the concrete base
+                // object give a stable lower-bound useful for growth correlation.
+                bytes += sizeof(entry) + 3 * sizeof(void*) + entry.first.capacity() + 1;
+                if (entry.second)
+                    bytes += sizeof(T);
+            }
+            return bytes;
+        }
+
     protected:
-        std::map<std::string, T*> created;
+        std::map<std::string, T*, std::less<>> created;
+        mutable std::recursive_mutex createdMutex;
         bool shared;
         bool supportsSiblings;
     };
@@ -366,12 +460,37 @@ namespace ai
             return result;
         }
 
+        size_t GetCreatedCount() const
+        {
+            size_t count = 0;
+            for (typename std::list<NamedObjectContext<T>*>::const_iterator i = contexts.begin(); i != contexts.end(); ++i)
+                count += (*i)->GetCreatedCount();
+            return count;
+        }
+
+        size_t GetEstimatedCreatedBytes() const
+        {
+            size_t bytes = 0;
+            for (typename std::list<NamedObjectContext<T>*>::const_iterator i = contexts.begin(); i != contexts.end(); ++i)
+                bytes += (*i)->GetEstimatedCreatedBytes();
+            return bytes;
+        }
+
         void Erase(const std::string& name)
         {
             for (typename std::list<NamedObjectContext<T>*>::iterator i = contexts.begin(); i != contexts.end(); i++)
             {
                 (*i)->Erase(name);
             }
+        }
+
+        template <typename Predicate>
+        size_t EraseIf(Predicate predicate)
+        {
+            size_t erased = 0;
+            for (typename std::list<NamedObjectContext<T>*>::iterator i = contexts.begin(); i != contexts.end(); ++i)
+                erased += (*i)->EraseIf(predicate);
+            return erased;
         }
 
     private:

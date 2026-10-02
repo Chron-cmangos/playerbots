@@ -15,11 +15,15 @@ namespace ai
         {
             return "This strategy will enable and disable various dungeon and raid specific strategies as the bot enters and leaves.";
         }
-        virtual std::vector<std::string> GetRelatedStrategies() { return {"onyxias lair", "molten core" }; }
+        virtual std::vector<std::string> GetRelatedStrategies() { return {"onyxia's lair", "molten core" }; }
 #endif
 
     private:
         void InitCombatTriggers(std::list<TriggerNode*>& triggers) override;
         void InitNonCombatTriggers(std::list<TriggerNode*>& triggers) override;
+        void InitReactionTriggers(std::list<TriggerNode*>& triggers) override;
+        void InitCombatMultipliers(std::list<Multiplier*>& multipliers) override;
+        void InitNonCombatMultipliers(std::list<Multiplier*>& multipliers) override;
+        void InitReactionMultipliers(std::list<Multiplier*>& multipliers) override;
     };
 }

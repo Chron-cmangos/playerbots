@@ -35,13 +35,6 @@ namespace ai
         std::string GetName() const override { return "group size"; }
     };
 
-    class MonitorStateGroupOnMap : public TestMonitor
-    {
-    private:
-        bool IsConditionMet(const std::string& monitorStr, Player* bot, TestContext& ctx) const override;
-        std::string GetName() const override { return "group on map"; }
-    };
-
     class MonitorStateLootGuid : public TestMonitor
     {
     private:

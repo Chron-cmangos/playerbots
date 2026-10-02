@@ -1,9 +1,14 @@
 #pragma once
 
 #include "playerbot/strategy/actions/GenericActions.h"
+#include "HunterCombatPolicy.h"
 
 namespace ai
 {
+#ifdef MANGOSBOT_TWO
+    BEGIN_RANGED_SPELL_ACTION(CastKillShotAction, "kill shot")
+    END_SPELL_ACTION()
+#endif
     BEGIN_RANGED_DEBUFF_ACTION(CastHuntersMarkAction, "hunter's mark")
     END_SPELL_ACTION()
 
@@ -25,11 +30,19 @@ public:
     BEGIN_RANGED_SPELL_ACTION(CastTranquilizingShotAction, "tranquilizing shot")
     END_SPELL_ACTION()
 
-    BEGIN_RANGED_SPELL_ACTION(CastArcaneShotAction, "arcane shot")
-    END_SPELL_ACTION()
+    class CastArcaneShotAction : public CastSpellAction
+    {
+    public:
+        CastArcaneShotAction(PlayerbotAI* ai) : CastSpellAction(ai, "arcane shot") {}
+        bool isUseful() override;
+    };
 
-    BEGIN_RANGED_SPELL_ACTION(CastExplosiveShotAction, "explosive shot")
-    END_SPELL_ACTION()
+    class CastExplosiveShotAction : public CastSpellAction
+    {
+    public:
+        CastExplosiveShotAction(PlayerbotAI* ai) : CastSpellAction(ai, "explosive shot") {}
+        bool isUseful() override;
+    };
 
     BEGIN_RANGED_SPELL_ACTION(CastAimedShotAction, "aimed shot")
     END_SPELL_ACTION()
@@ -47,17 +60,28 @@ public:
     {
     public:
         CastScatterShotOnClosestAttackerTargetingMeAction(PlayerbotAI* ai) : CastRangedDebuffSpellAction(ai, "scatter shot") {}
-        std::string GetTargetName() override { return "closest attacker targeting me target"; }
+        std::string GetTargetName() override { return "closest attacker targeting me"; }
+        bool Execute(Event& event) override;
     };
 
     BEGIN_RANGED_SPELL_ACTION(CastDistractingShotAction, "distracting shot")
     END_SPELL_ACTION()
 
-    BEGIN_RANGED_SPELL_ACTION(CastMultiShotAction, "multi-shot")
-    END_SPELL_ACTION()
+    class CastMultiShotAction : public CastSpellAction
+    {
+    public:
+        CastMultiShotAction(PlayerbotAI* ai) : CastSpellAction(ai, "multi-shot") {}
+        ActionThreatType getThreatType() override { return ActionThreatType::ACTION_THREAT_AOE; }
+        bool isUseful() override;
+    };
 
-    BEGIN_RANGED_SPELL_ACTION(CastVolleyAction, "volley")
-    END_SPELL_ACTION()
+    class CastVolleyAction : public CastSpellAction
+    {
+    public:
+        CastVolleyAction(PlayerbotAI* ai) : CastSpellAction(ai, "volley") {}
+        ActionThreatType getThreatType() override { return ActionThreatType::ACTION_THREAT_AOE; }
+        bool isUseful() override;
+    };
 
     BEGIN_RANGED_DEBUFF_ACTION(CastSerpentStingAction, "serpent sting")
         virtual bool isUseful();
@@ -70,10 +94,10 @@ public:
     BEGIN_RANGED_SPELL_ACTION(CastScorpidStingAction, "scorpid sting")
     END_SPELL_ACTION()
 
-    class MisdirectionOnPartyTankAction : public BuffOnTankAction
+    class MisdirectionOnPartyTankAction : public TankThreatTransferAction
     {
     public:
-        MisdirectionOnPartyTankAction(PlayerbotAI* ai) : BuffOnTankAction(ai, "misdirection") {}
+        MisdirectionOnPartyTankAction(PlayerbotAI* ai) : TankThreatTransferAction(ai, "misdirection") {}
     };
 
     class CastAspectOfTheMonkeyAction : public CastBuffSpellAction
@@ -189,10 +213,15 @@ public:
         CastBlackArrow(PlayerbotAI* ai) : CastRangedDebuffSpellAction(ai, "black arrow") {}
     };
 
-    SNARE_ACTION(CastBlackArrowSnareAction, "black arrow");
+
     SPELL_ACTION(CastSilencingShotAction, "silencing shot");
     ENEMY_HEALER_ACTION(CastSilencingShotOnHealerAction, "silencing shot");
-    BUFF_ACTION(CastReadinessAction, "readiness");
+    class CastReadinessAction : public CastBuffSpellAction
+    {
+    public:
+        CastReadinessAction(PlayerbotAI* ai) : CastBuffSpellAction(ai, "readiness") {}
+        bool isUseful() override;
+    };
     ;
     class CastWingClipAction : public CastMeleeSpellAction
     {
@@ -278,9 +307,6 @@ public:
     public:
         CastSteadyShotAction(PlayerbotAI* ai) : CastSpellAction(ai, "steady shot") {}
         virtual bool Execute(Event& event);
-
-    private:
-        uint32 weaponDelay;
     };
 
     class TrapOnTargetAction : public CastSpellAction
@@ -308,25 +334,27 @@ public:
 
         std::string GetReachActionName() override { return "reach melee"; }
         std::string GetTargetQualifier() override { return GetTrapSpellName(); }
-        ActionThreatType getThreatType() override { return ActionThreatType::ACTION_THREAT_NONE; }
-
-        NextAction** getPrerequisites() override
+        ActionThreatType getThreatType() override
         {
-            const std::string reachAction = GetReachActionName();
-            const std::string spellName = GetSpellName();
-            const std::string targetName = GetTrapTargetName();
+            if (trapSpell == "explosive trap" || trapSpell == "snake trap") return ActionThreatType::ACTION_THREAT_AOE;
+            if (trapSpell == "immolation trap") return ActionThreatType::ACTION_THREAT_SINGLE;
+            return ActionThreatType::ACTION_THREAT_NONE;
+        }
 
-            // Generate the reach action with qualifiers
-            std::vector<std::string> qualifiers = { spellName, targetName, trapSpell };
-            const std::string qualifiersStr = Qualified::MultiQualify(qualifiers, "::");
-            return NextAction::merge(NextAction::array(0, new NextAction(reachAction + "::" + qualifiersStr), NULL), Action::getPrerequisites());
+        bool isUseful() override;
+        NextAction** getPrerequisites() override { return Action::getPrerequisites(); }
+        bool Execute(Event& event) override
+        {
+            return isUseful() && CastSpellAction::Execute(event);
         }
 
 #ifdef MANGOSBOT_ZERO
         bool isPossible() override
         {
             // If the trap spell and feign death are not on cooldown
-            return sServerFacade.IsSpellReady(bot, trapSpellID) && sServerFacade.IsSpellReady(bot, 5384);
+            trapSpellID = AI_VALUE2(uint32, "spell id", trapSpell);
+            return trapSpellID && ai->HasSpell(trapSpellID) &&
+                CastSpellAction::isPossible() && sServerFacade.IsSpellReady(bot, trapSpellID);
         }
 
         NextAction** getContinuers() override
@@ -359,15 +387,24 @@ private:
     public:
         CastTrapAction(PlayerbotAI* ai, std::string spell) : CastSpellAction(ai, spell) {}
 
+        bool isUseful() override;
+        ActionThreatType getThreatType() override
+        {
+            if (GetSpellName() == "explosive trap" || GetSpellName() == "snake trap") return ActionThreatType::ACTION_THREAT_AOE;
+            if (GetSpellName() == "immolation trap") return ActionThreatType::ACTION_THREAT_SINGLE;
+            return ActionThreatType::ACTION_THREAT_NONE;
+        }
         // Traps don't really have target for the spell
         std::string GetTargetName() override { return "self target"; }
 
 #ifdef MANGOSBOT_ZERO
         bool Execute(Event& event) override
         {
-            // The trap could come just after feign death, so better remove it
-            ai->RemoveAura("feign death");
-            return CastSpellAction::Execute(event);
+            if (!isUseful()) return false;
+            // Preserve the native noncombat prerequisite until the trap starts.
+            const bool cast = CastSpellAction::Execute(event);
+            if (cast) ai->RemoveAura("feign death");
+            return cast;
         }
 #endif
     };
@@ -450,6 +487,63 @@ private:
         CastExplosiveTrapInPlaceAction(PlayerbotAI* ai) : TrapInPlace(ai, "explosive trap") {}
     };
 
+    class HunterWyvernStingAction : public CastCrowdControlSpellAction
+    {
+    public:
+        HunterWyvernStingAction(PlayerbotAI* ai) : CastCrowdControlSpellAction(ai, "wyvern sting") {}
+        bool Execute(Event& event) override;
+    };
+
+    class HunterDisengageAction : public CastSpellAction
+    {
+    public:
+        HunterDisengageAction(PlayerbotAI* ai) : CastSpellAction(ai, "disengage") {}
+        bool isUseful() override;
+        bool Execute(Event& event) override { return isUseful() && CastSpellAction::Execute(event); }
+        ActionThreatType getThreatType() override { return ActionThreatType::ACTION_THREAT_NONE; }
+#ifdef MANGOSBOT_TWO
+        std::string GetTargetName() override { return "self target"; }
+#endif
+    };
+#ifndef MANGOSBOT_ZERO
+    class HunterSnakeTrapAction : public TrapInPlace
+    {
+    public:
+        HunterSnakeTrapAction(PlayerbotAI* ai) : TrapInPlace(ai, "snake trap") {}
+        bool isUseful() override
+        {
+            Unit* attacker = ai->GetUnit(AI_VALUE(ObjectGuid, "closest attacker targeting me"));
+            return MeleeCombatTarget(ai, attacker) && bot->CanReachWithMeleeAttack(attacker) && TrapInPlace::isUseful();
+        }
+    };
+#endif
+#ifdef MANGOSBOT_TWO
+    class HunterMastersCallAction : public CastSpellAction
+    {
+    public:
+        HunterMastersCallAction(PlayerbotAI* ai) : CastSpellAction(ai, "master's call") {}
+        Unit* GetTarget() override;
+        bool isUseful() override;
+        ActionThreatType getThreatType() override { return ActionThreatType::ACTION_THREAT_NONE; }
+    protected:
+        std::string GetReachActionName() override { return ""; }
+    };
+
+    class HunterFreezingArrowAction : public CastSpellAction
+    {
+    public:
+        HunterFreezingArrowAction(PlayerbotAI* ai) : CastSpellAction(ai, "freezing arrow") {}
+        bool isUseful() override;
+        bool isPossible() override;
+        bool Execute(Event& event) override;
+        ActionThreatType getThreatType() override { return ActionThreatType::ACTION_THREAT_NONE; }
+    protected:
+        std::string GetTargetName() override { return "cc target"; }
+        std::string GetTargetQualifier() override { return "freezing trap"; }
+        std::string GetReachActionName() override { return ""; }
+    };
+#endif
+
     class CastDismissPetAction : public CastSpellAction
     {
     public:
@@ -459,7 +553,7 @@ private:
 
         bool isUseful() override
         {
-            return ai->GetUnit(AI_VALUE(ObjectGuid, "pet target"));
+            return CastSpellAction::isUseful() && ai->GetUnit(AI_VALUE(ObjectGuid, "pet target"));
         }
     };
 

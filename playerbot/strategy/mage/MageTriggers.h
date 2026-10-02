@@ -88,6 +88,14 @@ namespace ai
     {
     public:
         ArcaneBlastTrigger(PlayerbotAI* ai) : BuffTrigger(ai, "arcane blast") {}
+#ifdef MANGOSBOT_TWO
+        bool IsActive() override
+        {
+            if (!ai->HasSpell("arcane blast") || AI_VALUE2(uint8, "mana", "self target") <= sPlayerbotAIConfig.lowMana) return false;
+            Aura* stacks = ai->GetAura(36032, bot);
+            return !stacks || stacks->GetStackAmount() < 4;
+        }
+#endif
     };
 
     class CounterspellInterruptSpellTrigger : public InterruptSpellTrigger
@@ -132,6 +140,7 @@ namespace ai
     {
     public:
         SpellstealTrigger(PlayerbotAI* ai) : TargetAuraDispelTrigger(ai, "spellsteal", DISPEL_MAGIC) {}
+        bool IsActive() override;
     };
 
     class CounterspellEnemyHealerTrigger : public InterruptEnemyHealerTrigger
@@ -202,7 +211,7 @@ namespace ai
     BUFF_TRIGGER_A(HotStreakTrigger, "hot streak");
     BUFF_TRIGGER_A(FireballOrFrostfireBoltFreeTrigger, "fireball!");
     DEBUFF_TRIGGER_A(NoImprovedScorchDebuffTrigger, "improved scorch");
-    HAS_AURA_TRIGGER(FingersOfFrostTrigger, "fingers of frost");
+    HAS_AURA_TRIGGER_A(FingersOfFrostTrigger, "fingers of frost");
 
     class NoFireVulnerabilityTrigger : public Trigger
     {
@@ -258,8 +267,14 @@ namespace ai
 
         virtual bool IsActive() override
         {
-            return !bot->IsSpellReady(12472)    //icy veins on cooldown
-                && bot->IsSpellReady(11958);    //cold snap not on cooldown
+            const uint32 reset = AI_VALUE2(uint32, "spell id", "cold snap");
+            if (!reset || !bot->IsSpellReady(reset)) return false;
+            for (const char* name : {"ice block", "ice barrier", "icy veins", "summon water elemental"})
+            {
+                const uint32 spell = AI_VALUE2(uint32, "spell id", name);
+                if (spell && !bot->IsSpellReady(spell)) return true;
+            }
+            return false;
         }
     };
 

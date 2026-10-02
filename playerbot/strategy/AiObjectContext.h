@@ -6,6 +6,7 @@
 #include "NamedObjectContext.h"
 #include "Strategy.h"
 #include <set>
+#include <atomic>
 
 namespace ai
 {
@@ -83,6 +84,15 @@ namespace ai
             return valueContexts.GetCreated();
         }
 
+        size_t GetCreatedStrategyCount() const { return strategyContexts.GetCreatedCount(); }
+        size_t GetCreatedActionCount() const { return actionContexts.GetCreatedCount(); }
+        size_t GetCreatedTriggerCount() const { return triggerContexts.GetCreatedCount(); }
+        size_t GetCreatedValueCount() const { return valueContexts.GetCreatedCount(); }
+        size_t GetEstimatedStrategyBytes() const { return strategyContexts.GetEstimatedCreatedBytes(); }
+        size_t GetEstimatedActionBytes() const { return actionContexts.GetEstimatedCreatedBytes(); }
+        size_t GetEstimatedTriggerBytes() const { return triggerContexts.GetEstimatedCreatedBytes(); }
+        size_t GetEstimatedValueBytes() const { return valueContexts.GetEstimatedCreatedBytes(); }
+
         void GetSupportedStrategies(std::set<std::string>& strategies)
         {
             return strategyContexts.GetSupportedKeys(strategies);
@@ -105,7 +115,12 @@ namespace ai
 
         void ClearValues(std::string findName = "");
 
-        void ClearExpiredValues(std::string findName = "", uint32 interval = 0);
+        // interval is the minimum number of seconds a cached value must have
+        // been unused before it can be erased. Callers performing periodic
+        // maintenance must pass an idle lifetime explicitly; using a value's
+        // calculation interval (often one second) causes delete/recreate churn.
+        size_t ClearExpiredValues(std::string findName = "", uint32 interval = 0);
+        static uint64 GetExpiredValuesReleased();
 
         std::string FormatValues(std::string findName = "");
 
@@ -120,6 +135,8 @@ namespace ai
         void Load(std::list<std::string> data);
 
         std::vector<std::string> performanceStack;
+    private:
+        static std::atomic<uint64> expiredValuesReleased;
     protected:
         NamedObjectContextList<Strategy> strategyContexts;
         NamedObjectContextList<Action> actionContexts;

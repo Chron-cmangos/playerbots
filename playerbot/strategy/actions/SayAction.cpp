@@ -403,12 +403,12 @@ delayedPackets ChatReplyAction::LinesToPackets(const std::vector<std::string>& l
                 if (timeDiff >= delay)
                 {
                     delay = 0;
-                    sLog.outError("delay packet removed: %lu", delay);
+                    DEBUG_LOG("Bot chat delay exhausted: %u", uint32(delay));
                 }
                 else
                 {
                     delay -= timeDiff;
-                    sLog.outError("delay packet reduced to %lu", delay);
+                    DEBUG_LOG("Bot chat delay reduced to %u ms", uint32(delay));
                 }
                 timeDiff = 0;
             }
@@ -517,8 +517,9 @@ void ChatReplyAction::ChatReplyDo(Player* bot, uint32 type, uint32 guid1, uint32
         PlayerbotAI* ai = bot->GetPlayerbotAI();
         AiObjectContext* context = ai->GetAiObjectContext();
 
+        // Do not fall through to a canned reply after the channel loses its human audience.
         if (!chanName.empty() && !ai->ChannelHasRealPlayer(chanName))
-            player = nullptr;
+            return;
 
         std::string llmChannel;
 

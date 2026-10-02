@@ -1,6 +1,9 @@
 
 #include "playerbot/playerbot.h"
 #include "AttackAction.h"
+#include "playerbot/strategy/MeleeCombatPolicy.h"
+#include "playerbot/strategy/values/PossibleTargetsValue.h"
+#include "EncounterSpellPolicy.h"
 #include "MotionGenerators/MovementGenerator.h"
 #include "AI/BaseAI/CreatureAI.h"
 #include "playerbot/LootObjectStack.h"
@@ -14,7 +17,7 @@ bool AttackAction::Execute(Event& event)
     Player* requester = event.getOwner() ? event.getOwner() : GetMaster();
 
     Unit* target = GetTarget();
-    if (target && target->IsInWorld() && target->GetMapId() == bot->GetMapId())
+    if (PossibleTargetsValue::IsValid(target, bot, true) && !MeleeCcCheck(ai).Protected(target))
     {
         return Attack(requester, target);
     }
@@ -78,6 +81,12 @@ bool AttackRTITargetAction::isUseful()
 
 bool AttackAction::Attack(Player* requester, Unit* target)
 {
+    if (IsProtectedBlackwingTarget(bot, target)) return false;
+    if (HasEncounterDamagePause(bot) || HasEncounterThreatPause(bot) || HasEncounterWeaponPause(bot))
+    {
+        StopUnsafeEncounterOffense(bot, bot);
+        return false;
+    }
     MotionMaster &mm = *bot->GetMotionMaster();
 	if (mm.GetCurrentMovementGeneratorType() == TAXI_MOTION_TYPE || (bot->IsFlying() && WorldPosition(bot).currentHeight() > 10.0f))
     {
@@ -253,7 +262,7 @@ bool AttackAction::PetAttack(Player* requester, Unit* target)
 
 bool AttackAction::IsTargetValid(Player* requester, Unit* target)
 {
-    if (!target)
+    if (!target || !target->IsInWorld() || !bot->IsInMap(target))
     {
         if (verbose) 
         {
@@ -299,7 +308,8 @@ bool AttackAction::IsTargetValid(Player* requester, Unit* target)
         return false;
     }
 
-    return true;
+    // The native attackability state may have changed since target selection.
+    return PossibleTargetsValue::IsValid(target, bot, true);
 }
 
 bool AttackDuelOpponentAction::isUseful()

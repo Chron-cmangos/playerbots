@@ -39,6 +39,7 @@ bool ReactionEngine::FindReaction(bool isStunned)
     // Don't find a new reaction if the previous reaction is still running
     if(!IsReacting())
     {
+        queue.RemoveExpired();
         aiObjectContext->Update();
 
         ai->HandleCommands();
@@ -63,11 +64,6 @@ bool ReactionEngine::FindReaction(bool isStunned)
 
                 // Extract the reaction from the queue (removed)
                 ActionNode* reactionNode = queue.Pop(reactionItem);
-
-                // Pairs with Engine::ProcessTriggers(): a reaction that consumed an external packet
-                // event must hand its trigger back, or the armed trigger would suppress every later
-                // packet of the same opcode (there is no other release path on this engine).
-                ReleaseExternalEvent(reactionEvent.getSource());
                 if (reactionNode)
                 {
                     Action* reaction = InitializeAction(reactionNode);
@@ -89,6 +85,14 @@ bool ReactionEngine::FindReaction(bool isStunned)
                                     // Multiplier made reaction useless
                                     break;
                                 }
+                            }
+
+                            // A blocked reaction must not manufacture a positive-priority
+                            // prerequisite or fallback from the +0.02/+0.03 offsets.
+                            if (reactionRelevance <= 0.0f)
+                            {
+                                delete reactionNode;
+                                continue;
                             }
 
                             // Process prerequisites
@@ -117,6 +121,13 @@ bool ReactionEngine::FindReaction(bool isStunned)
                                 // Add the alternative reactions to the queue
                                 MultiplyAndPush(reactionNode->getAlternatives(), reactionRelevance + 0.03, false, reactionEvent, "alt");
                             }
+                        }
+                        else if ((!isStunned || reaction->isUsefulWhenStunned()) &&
+                            reaction->ShouldTryAlternativesWhenUseless())
+                        {
+                            // Honor the same explicit fallback contract as the
+                            // combat engine; ordinary useless actions still stop.
+                            MultiplyAndPush(reactionNode->getAlternatives(), reactionRelevance + 0.03, false, reactionEvent, "alt");
                         }
                     }
 
@@ -217,6 +228,9 @@ bool ReactionEngine::Update(uint32 elapsed, bool minimal, bool isStunned, bool& 
 
 bool ReactionEngine::ListenAndExecute(Action* action, Event& event)
 {
+    if (!event.IsOwnerAvailable())
+        return false;
+
     bool actionExecuted = false;
     if (actionExecutionListeners.Before(action, event))
     {

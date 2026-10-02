@@ -14,7 +14,6 @@ public:
         creators["lava lash"] = &lava_lash;
         creators["searing totem"] = &searing_totem;
         creators["mana spring totem"] = &mana_spring_totem;
-        creators["water shield"] = &water_shield;
         creators["magma totem"] = &magma_totem;
         creators["strength of earth totem"] = &strength_of_earth_totem;
         creators["windfury totem"] = &windfury_totem;
@@ -30,15 +29,17 @@ private:
 
     ACTION_NODE_A(mana_spring_totem, "mana spring totem", "healing stream totem");
 
+#ifdef MANGOSBOT_TWO
     ACTION_NODE_C(magma_totem, "magma totem", "fire nova");
+#else
+    static ActionNode* magma_totem(PlayerbotAI*) { return new ActionNode("magma totem", nullptr, nullptr, nullptr); }
+#endif
 
     ACTION_NODE_A(strength_of_earth_totem, "strength of earth totem", "stoneskin totem");
 
     ACTION_NODE_A(windfury_totem, "windfury totem", "grace of air totem");
 
     ACTION_NODE_A(windfury_weapon, "windfury weapon", "rockbiter weapon");
-
-    ACTION_NODE_A(water_shield, "water shield", "lightning shield");
 };
 
 EnhancementShamanStrategy::EnhancementShamanStrategy(PlayerbotAI* ai) : ShamanStrategy(ai)
@@ -55,6 +56,21 @@ NextAction** EnhancementShamanStrategy::GetDefaultCombatActions()
 
 void EnhancementShamanStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
+#if defined(MANGOSBOT_TWO)
+
+    triggers.push_back(new TriggerNode("very often", NextAction::array(0, new NextAction("lava lash", ACTION_NORMAL), nullptr)));
+#endif
+
+#if defined(MANGOSBOT_TWO)
+
+    triggers.push_back(new TriggerNode("maelstrom weapon", NextAction::array(0, new NextAction("maelstrom lightning", ACTION_HIGH + 2), nullptr)));
+#endif
+
+#if !defined(MANGOSBOT_ZERO)
+
+    triggers.push_back(new TriggerNode("low mana", NextAction::array(0, new NextAction("shamanistic rage", ACTION_HIGH + 4), nullptr)));
+#endif
+
     ShamanStrategy::InitCombatTriggers(triggers);
 
     triggers.push_back(new TriggerNode(
@@ -159,7 +175,7 @@ void EnhancementShamanAoeStrategy::InitCombatTriggers(std::list<TriggerNode*>& t
 
     triggers.push_back(new TriggerNode(
         "melee medium aoe",
-        NextAction::array(0, new NextAction("fire nova", ACTION_HIGH), NULL)));
+        NextAction::array(0, new NextAction("fire nova", ACTION_HIGH + 3), NULL)));
 
     triggers.push_back(new TriggerNode(
         "melee light aoe",
@@ -491,6 +507,21 @@ NextAction** EnhancementShamanStrategy::GetDefaultCombatActions()
 
 void EnhancementShamanStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
+#if defined(MANGOSBOT_TWO)
+
+    triggers.push_back(new TriggerNode("very often", NextAction::array(0, new NextAction("lava lash", ACTION_NORMAL), nullptr)));
+#endif
+
+#if defined(MANGOSBOT_TWO)
+
+    triggers.push_back(new TriggerNode("maelstrom weapon", NextAction::array(0, new NextAction("maelstrom lightning", ACTION_HIGH + 2), nullptr)));
+#endif
+
+#if !defined(MANGOSBOT_ZERO)
+
+    triggers.push_back(new TriggerNode("low mana", NextAction::array(0, new NextAction("shamanistic rage", ACTION_HIGH + 4), nullptr)));
+#endif
+
     ShamanStrategy::InitCombatTriggers(triggers);
 
     triggers.push_back(new TriggerNode(
@@ -599,7 +630,7 @@ void EnhancementShamanAoeStrategy::InitCombatTriggers(std::list<TriggerNode*>& t
 
     triggers.push_back(new TriggerNode(
         "melee medium aoe",
-        NextAction::array(0, new NextAction("fire nova", ACTION_HIGH), NULL)));
+        NextAction::array(0, new NextAction("fire nova", ACTION_HIGH + 3), NULL)));
 
     //triggers.push_back(new TriggerNode(
         //"melee light aoe",
@@ -824,7 +855,6 @@ void EnhancementShamanBuffStrategy::InitCombatTriggers(std::list<TriggerNode*>& 
     triggers.push_back(new TriggerNode(
         "shaman weapon",
         NextAction::array(0, new NextAction("windfury weapon", ACTION_HIGH), NULL)));
-
 }
 
 void EnhancementShamanBuffStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -835,66 +865,45 @@ void EnhancementShamanBuffStrategy::InitNonCombatTriggers(std::list<TriggerNode*
         "shaman weapon",
         NextAction::array(0, new NextAction("windfury weapon", ACTION_NORMAL), NULL)));
 
+    triggers.push_back(new TriggerNode(
+        "lightning shield",
+        NextAction::array(0, new NextAction("lightning shield", ACTION_NORMAL), NULL)));
 }
 
 void EnhancementShamanBuffPveStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     EnhancementShamanBuffStrategy::InitCombatTriggers(triggers);
     ShamanBuffPveStrategy::InitCombatTriggers(triggers);
-
-    triggers.push_back(new TriggerNode(
-        "lightning shield",
-        NextAction::array(0, new NextAction("lightning shield", ACTION_NORMAL), NULL)));
 }
 
 void EnhancementShamanBuffPveStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     EnhancementShamanBuffStrategy::InitNonCombatTriggers(triggers);
     ShamanBuffPveStrategy::InitNonCombatTriggers(triggers);
-
-    triggers.push_back(new TriggerNode(
-        "lightning shield",
-        NextAction::array(0, new NextAction("lightning shield", ACTION_NORMAL), NULL)));
 }
 
 void EnhancementShamanBuffPvpStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     EnhancementShamanBuffStrategy::InitCombatTriggers(triggers);
     ShamanBuffPvpStrategy::InitCombatTriggers(triggers);
-
-    triggers.push_back(new TriggerNode(
-        "lightning shield",
-        NextAction::array(0, new NextAction("lightning shield", ACTION_NORMAL), NULL)));
 }
 
 void EnhancementShamanBuffPvpStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     EnhancementShamanBuffStrategy::InitNonCombatTriggers(triggers);
     ShamanBuffPvpStrategy::InitNonCombatTriggers(triggers);
-
-    triggers.push_back(new TriggerNode(
-        "lightning shield",
-        NextAction::array(0, new NextAction("lightning shield", ACTION_NORMAL), NULL)));
 }
 
 void EnhancementShamanBuffRaidStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     EnhancementShamanBuffStrategy::InitCombatTriggers(triggers);
     ShamanBuffRaidStrategy::InitCombatTriggers(triggers);
-
-    triggers.push_back(new TriggerNode(
-        "lightning shield",
-        NextAction::array(0, new NextAction("water shield", ACTION_NORMAL), NULL)));
 }
 
 void EnhancementShamanBuffRaidStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     EnhancementShamanBuffStrategy::InitNonCombatTriggers(triggers);
     ShamanBuffRaidStrategy::InitNonCombatTriggers(triggers);
-
-    triggers.push_back(new TriggerNode(
-        "lightning shield",
-        NextAction::array(0, new NextAction("water shield", ACTION_NORMAL), NULL)));
 }
 
 void EnhancementShamanBoostStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -953,6 +962,21 @@ NextAction** EnhancementShamanStrategy::GetDefaultCombatActions()
 
 void EnhancementShamanStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
+#if defined(MANGOSBOT_TWO)
+
+    triggers.push_back(new TriggerNode("very often", NextAction::array(0, new NextAction("lava lash", ACTION_NORMAL), nullptr)));
+#endif
+
+#if defined(MANGOSBOT_TWO)
+
+    triggers.push_back(new TriggerNode("maelstrom weapon", NextAction::array(0, new NextAction("maelstrom lightning", ACTION_HIGH + 2), nullptr)));
+#endif
+
+#if !defined(MANGOSBOT_ZERO)
+
+    triggers.push_back(new TriggerNode("low mana", NextAction::array(0, new NextAction("shamanistic rage", ACTION_HIGH + 4), nullptr)));
+#endif
+
     ShamanStrategy::InitCombatTriggers(triggers);
 
     triggers.push_back(new TriggerNode(
@@ -1057,7 +1081,7 @@ void EnhancementShamanAoeStrategy::InitCombatTriggers(std::list<TriggerNode*>& t
 
     triggers.push_back(new TriggerNode(
         "melee medium aoe",
-        NextAction::array(0, new NextAction("fire nova", ACTION_HIGH), NULL)));
+        NextAction::array(0, new NextAction("fire nova", ACTION_HIGH + 3), NULL)));
 
     //triggers.push_back(new TriggerNode(
         //"melee light aoe",
@@ -1336,6 +1360,9 @@ void EnhancementShamanBuffRaidStrategy::InitNonCombatTriggers(std::list<TriggerN
 void EnhancementShamanBoostStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     ShamanBoostStrategy::InitCombatTriggers(triggers);
+    triggers.push_back(new TriggerNode(
+        "feral spirit",
+        NextAction::array(0, new NextAction("feral spirit", ACTION_HIGH + 3), NULL)));
 }
 
 void EnhancementShamanBoostStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)

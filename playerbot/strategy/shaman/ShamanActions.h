@@ -1,10 +1,21 @@
+#include "Entities/Totem.h"
+#include "playerbot/strategy/MeleeCombatPolicy.h"
 #pragma once
+#include "playerbot/strategy/actions/HealerSupportActions.h"
+#include "ShamanInterrupt.h"
 
 #include "playerbot/strategy/actions/GenericActions.h"
 #include "playerbot/strategy/actions/ChangeStrategyAction.h"
+#include "ShamanTotemSpells.h"
+
+char* strstri(const char* haystack, const char* needle);
 
 namespace ai
 {
+#ifdef MANGOSBOT_TWO
+    BUFF_ACTION(CastFeralSpiritAction, "feral spirit");
+    SPELL_ACTION(CastLavaBurstAction, "lava burst");
+#endif
     BUFF_ACTION(CastGhostWolfAction, "ghost wolf");
     class CastLesserHealingWaveAction : public CastHealingSpellAction 
     {
@@ -111,6 +122,22 @@ namespace ai
         {
             if (!CastBuffSpellAction::isUseful())
                 return false;
+#ifndef MANGOSBOT_TWO
+            if (name == "searing totem" || name == "flametongue totem" || name == "frost resistance totem" || name == "totem of wrath")
+                if (Totem* fire = bot->GetTotem(TOTEM_SLOT_FIRE))
+                    if (strstri(fire->GetName(), "fire nova totem")) return false;
+#endif
+
+            // A manual air choice must not be overwritten by default spec routes.
+            if (name == "windfury totem" || name == "wrath of air totem")
+            {
+                const std::pair<const char*, const char*> choices[] = {
+                    {"totem air grace", "grace of air totem"}, {"totem air grounding", "grounding totem"},
+                    {"totem air resistance", "nature resistance totem"}, {"totem air tranquil", "tranquil air totem"},
+                    {"totem air windfury", "windfury totem"}, {"totem air windwall", "windwall totem"}, {"totem air wrath", "wrath of air totem"}};
+                for (const auto& choice : choices)
+                    if (ai->HasStrategy(choice.first, BotState::BOT_STATE_COMBAT) && name != choice.second) return false;
+            }
 
             Group* group = bot->GetGroup();
             if (!group)
@@ -255,13 +282,13 @@ namespace ai
     class CastDiseaseCleansingTotemAction : public CastTotemAction
     {
     public:
-        CastDiseaseCleansingTotemAction(PlayerbotAI* ai) : CastTotemAction(ai, "disease cleansing totem") {}
+        CastDiseaseCleansingTotemAction(PlayerbotAI* ai) : CastTotemAction(ai, DiseaseCleansingTotemName()) {}
     };
 
     class CastPoisonCleansingTotemAction : public CastTotemAction
     {
     public:
-        CastPoisonCleansingTotemAction(PlayerbotAI* ai) : CastTotemAction(ai, "poison cleansing totem") {}
+        CastPoisonCleansingTotemAction(PlayerbotAI* ai) : CastTotemAction(ai, PoisonCleansingTotemName()) {}
     };
 
     class CastTotemOfWrathAction : public CastTotemAction
@@ -270,11 +297,13 @@ namespace ai
         CastTotemOfWrathAction(PlayerbotAI* ai) : CastTotemAction(ai, "totem of wrath") {}
     };
 
+#ifdef MANGOSBOT_TWO
     class CastCleansingTotemAction : public CastTotemAction
     {
     public:
         CastCleansingTotemAction(PlayerbotAI* ai) : CastTotemAction(ai, "cleansing totem") {}
     };
+#endif
 
     class CastFlametongueTotemAction : public CastTotemAction
     {
@@ -322,21 +351,54 @@ namespace ai
     class CastMagmaTotemAction : public CastMeleeSpellAction
     {
     public:
+        ActionThreatType getThreatType() override { return ActionThreatType::ACTION_THREAT_AOE; }
         CastMagmaTotemAction(PlayerbotAI* ai) : CastMeleeSpellAction(ai, "magma totem") {}
         virtual std::string GetTargetName() override { return "self target"; }
-        virtual bool isUseful() override { return CastMeleeSpellAction::isUseful() && !AI_VALUE2(bool, "has totem", name); }
+        virtual bool isUseful() override { return CastMeleeSpellAction::isUseful() && !AI_VALUE2(bool, "has totem", "fire nova totem") && !AI_VALUE2(bool, "has totem", name); }
     };
 
     class CastFireNovaAction : public CastSpellAction 
     {
     public:
-        CastFireNovaAction(PlayerbotAI* ai) : CastSpellAction(ai, "fire nova") {}
+        CastFireNovaAction(PlayerbotAI* ai) : CastSpellAction(ai,
+#ifdef MANGOSBOT_TWO
+            "fire nova"
+#else
+            "fire nova totem"
+#endif
+        ) {}
+        std::string GetTargetName() override { return "self target"; }
+        ActionThreatType getThreatType() override { return ActionThreatType::ACTION_THREAT_AOE; }
+        bool isUseful() override
+        {
+            if (!ai->IsStateActive(BotState::BOT_STATE_COMBAT) || !CastSpellAction::isUseful()) return false;
+            Totem* fire = bot->GetTotem(TOTEM_SLOT_FIRE);
+#ifdef MANGOSBOT_TWO
+            return fire && SafeMeleeTargetCount(ai, 10.0f, fire) >= 2;
+#else
+            if (ai->HasStrategy("totem fire magma", BotState::BOT_STATE_COMBAT) ||
+                ai->HasStrategy("totem fire searing", BotState::BOT_STATE_COMBAT) ||
+                ai->HasStrategy("totem fire flametongue", BotState::BOT_STATE_COMBAT) ||
+                ai->HasStrategy("totem fire resistance", BotState::BOT_STATE_COMBAT)) return false;
+            if (fire)
+            {
+                // Only ordinary damage totems may give way to a larger burst.
+                // Buff, resistance, Fire Elemental and pending Nova stay protected.
+                std::string name = fire->GetName();
+                strToLower(name);
+                if (name.find("searing totem") == std::string::npos && name.find("magma totem") == std::string::npos)
+                    return false;
+            }
+            return SafeMeleeTargetCount(ai, 10.0f) >= (fire ? 4u : 3u);
+#endif
+        }
+        bool Execute(Event& event) override { return isUseful() && CastSpellAction::Execute(event); }
     };
 
     class CastWindShearAction : public CastSpellAction 
     {
     public:
-        CastWindShearAction(PlayerbotAI* ai) : CastSpellAction(ai, "wind shear") {}
+        CastWindShearAction(PlayerbotAI* ai) : CastSpellAction(ai, ShamanInterruptSpell()) {}
     };
 
 	class CastAncestralSpiritAction : public ResurrectPartyMemberAction
@@ -421,10 +483,10 @@ namespace ai
         CastFlameShockAction(PlayerbotAI* ai) : CastRangedDebuffSpellAction(ai, "flame shock") {}
     };
 
-    class CastEarthShockAction : public CastRangedDebuffSpellAction
+    class CastEarthShockAction : public CastSpellAction
     {
     public:
-        CastEarthShockAction(PlayerbotAI* ai) : CastRangedDebuffSpellAction(ai, "earth shock") {}
+        CastEarthShockAction(PlayerbotAI* ai) : CastSpellAction(ai, "earth shock") {}
     };
 
     class CastFrostShockAction : public CastSnareSpellAction
@@ -436,6 +498,7 @@ namespace ai
     class CastChainLightningAction : public CastSpellAction
     {
     public:
+        ActionThreatType getThreatType() override { return ActionThreatType::ACTION_THREAT_AOE; }
         CastChainLightningAction(PlayerbotAI* ai) : CastSpellAction(ai, "chain lightning") {}
     };
 
@@ -445,10 +508,11 @@ namespace ai
         CastLightningBoltAction(PlayerbotAI* ai) : CastSpellAction(ai, "lightning bolt") {}
     };
 
-    class CastThunderstormAction : public CastMeleeSpellAction
+    class CastThunderstormAction : public CastSpellAction
     {
     public:
-        CastThunderstormAction(PlayerbotAI* ai) : CastMeleeSpellAction(ai, "thunderstorm") {}
+        std::string GetTargetName() override { return "self target"; }
+        CastThunderstormAction(PlayerbotAI* ai) : CastSpellAction(ai, "thunderstorm") {}
     };
 
     class CastHeroismAction : public CastBuffSpellAction
@@ -466,7 +530,7 @@ namespace ai
     class CastWindShearOnEnemyHealerAction : public CastSpellOnEnemyHealerAction
     {
     public:
-        CastWindShearOnEnemyHealerAction(PlayerbotAI* ai) : CastSpellOnEnemyHealerAction(ai, "wind shear") {}
+        CastWindShearOnEnemyHealerAction(PlayerbotAI* ai) : CastSpellOnEnemyHealerAction(ai, ShamanInterruptSpell()) {}
     };
 
     class CastCurePoisonAction : public CastCureSpellAction
@@ -522,10 +586,10 @@ namespace ai
 #endif
     };
 
-    class CastEarthShieldOnPartyTankAction : public BuffOnTankAction
+    class CastEarthShieldOnPartyTankAction : public CastMaintainedHealerBuffAction
     {
     public:
-        CastEarthShieldOnPartyTankAction(PlayerbotAI* ai) : BuffOnTankAction(ai, "earth shield") {}
+        CastEarthShieldOnPartyTankAction(PlayerbotAI* ai) : CastMaintainedHealerBuffAction(ai, "earth shield") {}
     };
 
     class SetTotemBars : public Action

@@ -1,4 +1,5 @@
 #include "DungeonActions.h"
+#include "Spells/SpellAuras.h"
 #include "playerbot/strategy/values/PositionValue.h"
 #include "playerbot/strategy/AiObjectContext.h"
 #include "playerbot/PlayerbotAI.h"
@@ -9,8 +10,134 @@
 
 using namespace ai;
 
+bool GruulSpreadAction::GetPlan(PlayerbotAI* ai, EncounterPosition& plan)
+{
+    EncounterPosition current;
+    std::vector<encounter::Circle> threats;
+    if (!GruulShatterThreats(ai, current, threats) || !ai->CanMove()) return false;
+    Player* bot = ai->GetBot();
+    plan = ai->GetAiObjectContext()->GetValue<EncounterPosition>("gruul spread position")->Get();
+    if (!plan.active || plan.map != current.map || plan.instance != current.instance ||
+        plan.boss != current.boss || plan.spell != current.spell ||
+        !std::isfinite(plan.destination.x) || !std::isfinite(plan.destination.y) || !std::isfinite(plan.destination.z)) return false;
+    const encounter::Point here{bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ()};
+    // A moving group can invalidate a cached destination before the next
+    // value update. Never run back into a worse cluster to follow that cache.
+    const float after = encounter::SpreadOverlap(plan.destination, threats);
+    return bot->GetDistance(plan.destination.x, plan.destination.y, plan.destination.z) <= 1.5f ||
+        after == 0 || after + 1 < encounter::SpreadOverlap(here, threats);
+}
+
+bool GruulSpreadAction::isUseful()
+{
+    EncounterPosition plan;
+    return GetPlan(ai, plan) && (bot->GetDistance(plan.destination.x, plan.destination.y, plan.destination.z) > 1.5f ||
+        !bot->IsStopped() || bot->GetMotionMaster()->GetCurrentMovementGeneratorType() != IDLE_MOTION_TYPE);
+}
+
+bool GruulSpreadAction::ShouldReactionInterruptCast() const
+{
+    EncounterPosition plan;
+    return GetPlan(ai, plan) && bot->GetDistance(plan.destination.x, plan.destination.y, plan.destination.z) > 1.5f;
+}
+
+bool GruulSpreadAction::Execute(Event& event)
+{
+    EncounterPosition plan;
+    if (!GetPlan(ai, plan) || !ValidateEncounterDestination(ai, plan)) return false;
+    // Native height correction can alter a destination; recheck both geometry
+    // and live group membership after that correction, not just before it.
+    EncounterPosition current;
+    std::vector<encounter::Circle> threats;
+    if (!GruulShatterThreats(ai, current, threats) || current.boss != plan.boss) return false;
+    const encounter::Point here{bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ()};
+    if (bot->GetDistance(plan.destination.x, plan.destination.y, plan.destination.z) <= 1.5f)
+    {
+        ai->StopMoving();
+        SetDuration(100);
+        return true;
+    }
+    const float after = encounter::SpreadOverlap(plan.destination, threats);
+    if (after > 0 && after + 1 >= encounter::SpreadOverlap(here, threats)) return false;
+    return MoveTo(plan.map, plan.destination.x, plan.destination.y, plan.destination.z, false, IsReaction(), false, true);
+}
+
+bool BossCastPositionAction::GetPlan(PlayerbotAI* ai, EncounterPosition& plan)
+{
+    Player* bot = ai->GetBot();
+    if (!bot->IsInWorld() || !bot->IsAlive() || bot->HasCharmer() || bot->IsBeingTeleported() ||
+        !bot->IsInCombat() || !IsBossEscapeMap(bot->GetMapId())) return false;
+    if (bot->GetMapId() == 532 && ai->GetAiObjectContext()->GetValue<bool>("aran flame wreath")->Get()) return false;
+    plan = ai->GetAiObjectContext()->GetValue<EncounterPosition>("boss cast position")->Get();
+    if (!plan.active || plan.map != bot->GetMapId() || plan.instance != bot->GetInstanceId()) return false;
+    Unit* boss = ai->GetUnit(plan.boss);
+    if (!boss || !boss->IsInWorld() || !boss->IsAlive() || !boss->IsInCombat() || boss->HasCharmer() ||
+        !bot->IsInMap(boss) || bot->GetDistance(boss) > 100 ||
+        std::fabs(boss->GetPositionZ() - bot->GetPositionZ()) > 8) return false;
+    if (plan.spell == 59414)
+        return IsLokenClosePhase(bot, boss) && std::isfinite(plan.destination.x) &&
+            std::isfinite(plan.destination.y) && std::isfinite(plan.destination.z) &&
+            std::fabs(plan.destination.z - boss->GetPositionZ()) <= 8 &&
+            encounter::Distance2d(plan.destination, {boss->GetPositionX(), boss->GetPositionY(), boss->GetPositionZ()}) <= 5;
+    const uint32 spell = CurrentBossEscapeSpell(bot, boss);
+    if (!spell || spell != plan.spell) return false;
+    bool regular = true;
+#ifndef MANGOSBOT_ZERO
+    regular = bot->GetMap()->IsRegularDifficulty();
+#endif
+    const uint32 damage = NativeBossEscapeSpell(plan.map, boss->GetEntry(), plan.spell, regular);
+    if (!damage) return false;
+    const float radius = NativeEncounterSpellRadius(damage);
+    const encounter::Point center{boss->GetPositionX(), boss->GetPositionY(), boss->GetPositionZ()};
+    if (plan.map == 531)
+    {
+        EncounterPosition current;
+        std::vector<encounter::Circle> threats;
+        // Every active guard remains a hazard, including one that starts or
+        // moves after this destination was cached.
+        if (!AQWhirlwindThreats(ai, current, threats) || !encounter::OutsideCircles(plan.destination, threats)) return false;
+    }
+    // A cached point must still clear the live caster. End the hold immediately
+    // on cast completion/interruption, reset, map change or invalid spell data.
+    return std::isfinite(radius) && radius > 0 && radius <= 35 &&
+        std::isfinite(plan.destination.x) && std::isfinite(plan.destination.y) && std::isfinite(plan.destination.z) &&
+        encounter::Distance2d(plan.destination, center) >= radius + 2;
+}
+
+bool BossCastPositionAction::isUseful()
+{
+    EncounterPosition plan;
+    return GetPlan(ai, plan) && !(plan.spell == 59414 && bot->IsNonMeleeSpellCasted(false, false, true)) &&
+        (bot->GetDistance(plan.destination.x, plan.destination.y, plan.destination.z) > 1.5f ||
+        !bot->IsStopped() || bot->GetMotionMaster()->GetCurrentMovementGeneratorType() != IDLE_MOTION_TYPE);
+}
+
+bool BossCastPositionAction::ShouldReactionInterruptCast() const
+{
+    EncounterPosition plan;
+    // Stopping an old chase at an already safe point need not cancel a heal.
+    return GetPlan(ai, plan) && plan.spell != 59414 && bot->GetDistance(plan.destination.x, plan.destination.y, plan.destination.z) > 1.5f;
+}
+
+bool BossCastPositionAction::Execute(Event& event)
+{
+    EncounterPosition plan;
+    if (!GetPlan(ai, plan) || !ai->CanMove() || !ValidateEncounterDestination(ai, plan)) return false;
+    if (plan.spell == 59414 && bot->IsNonMeleeSpellCasted(false, false, true)) return false;
+    if (bot->GetDistance(plan.destination.x, plan.destination.y, plan.destination.z) <= 1.5f)
+    {
+        ai->StopMoving();
+        SetDuration(100);
+        return true;
+    }
+    return MoveTo(plan.map, plan.destination.x, plan.destination.y, plan.destination.z, false, IsReaction(), false, true);
+}
+
 bool MoveAwayFromHazard::Execute(Event& event)
 {
+    if (!bot->IsInWorld() || !bot->IsAlive() || bot->HasCharmer() || bot->IsBeingTeleported() || !ai->CanMove())
+        return false;
+    const WorldPosition botPosition(bot);
     const std::list<HazardPosition>& hazards = AI_VALUE(std::list<HazardPosition>, "hazards");
 
     // Get the closest hazard to move away from
@@ -19,8 +146,10 @@ bool MoveAwayFromHazard::Execute(Event& event)
     for (const HazardPosition& hazard : hazards)
     {
         const WorldPosition& hazardPosition = hazard.first;
+        if (hazardPosition.getMapId() != bot->GetMapId() || !std::isfinite(hazard.second) || hazard.second <= 0)
+            continue;
         const float distance = bot->GetDistance(hazardPosition.getX(), hazardPosition.getY(), hazardPosition.getZ());
-        if (distance < closestHazardDistance)
+        if (distance <= hazard.second && distance < closestHazardDistance)
         {
             closestHazardDistance = distance;
             closestHazard = &hazard;
@@ -60,7 +189,7 @@ bool MoveAwayFromHazard::Execute(Event& event)
                 // Check if the point is not near other hazards
                 if (!IsHazardNearby(point, hazards))
                 {
-                    if (bot->IsWithinLOS(point.getX(), point.getY(), point.getZ() + bot->GetCollisionHeight()) && initialPosition.canPathTo(point, bot))
+                    if (bot->IsWithinLOS(point.getX(), point.getY(), point.getZ() + bot->GetCollisionHeight()) && botPosition.canPathTo(point, bot))
                     {
                         if (ai->HasStrategy("debug move", BotState::BOT_STATE_COMBAT))
                         {
@@ -71,7 +200,7 @@ bool MoveAwayFromHazard::Execute(Event& event)
                         {
                             if (IsReaction())
                             {
-                                WaitForReach(point.distance(initialPosition));
+                                WaitForReach(point.distance(botPosition));
                             }
 
                             return true;
@@ -120,6 +249,15 @@ bool MoveAwayFromHazard::IsHazardNearby(const WorldPosition& point, const std::l
 
 bool MoveAwayFromCreature::CreatureSearchHelperFunction(Event& event, uint32 creatureId)
 {
+    if (!creatureId) return false;
+    return CreatureSearchHelperFunction(event, std::set<uint32>{creatureId});
+}
+
+bool MoveAwayFromCreature::CreatureSearchHelperFunction(Event& event, const std::set<uint32>& creatureIds)
+{
+    if (!bot->IsInWorld() || !bot->IsAlive() || bot->HasCharmer() || bot->IsBeingTeleported() || creatureIds.empty() ||
+        !std::isfinite(range) || range <= 0)
+        return false;
     // Get the active attacking creatures
     std::list<Creature*> creatures;
     size_t closestCreatureIdx = 0;
@@ -127,14 +265,23 @@ bool MoveAwayFromCreature::CreatureSearchHelperFunction(Event& event, uint32 cre
 
     // Iterate through the near creatures
     std::list<Unit*> units;
-    MaNGOS::AllCreaturesOfEntryInRangeCheck u_check(bot, creatureID, range);
-    MaNGOS::UnitListSearcher<MaNGOS::AllCreaturesOfEntryInRangeCheck> searcher(units, u_check);
-    Cell::VisitAllObjects(bot, searcher, range);
+    // A destination outside the current danger radius can be inside a second
+    // creature's radius. Collect nearby entries together before choosing a path.
+    // This remains an on-demand action, not a new background grid scan.
+    const float searchRange = std::min(150.0f, range * 3 + 10.0f);
+    std::vector<uint32> entries;
+    for (const uint32 entry : creatureIds)
+        if (entry) entries.push_back(entry);
+    if (entries.empty()) return false;
+    MaNGOS::AllCreaturesMatchingOneEntryInRange u_check(bot, entries, searchRange);
+    MaNGOS::UnitListSearcher<MaNGOS::AllCreaturesMatchingOneEntryInRange> searcher(units, u_check);
+    Cell::VisitAllObjects(bot, searcher, searchRange);
 
     for (Unit* unit : units)
     {
         Creature* creature = (Creature*)unit;
-        if (creature)
+        if (creature && creature->IsInWorld() && creature->IsAlive() && creature->GetMap() == bot->GetMap() &&
+            (ignoreVictim || creature->GetVictim() != bot))
         {
             creatures.push_back(creature);
 
@@ -159,8 +306,8 @@ bool MoveAwayFromCreature::CreatureSearchHelperFunction(Event& event, uint32 cre
     auto it = creatures.begin();
     advance(it, closestCreatureIdx);
     Creature* closestCreature = *it;
-    // Remove the closest creature from the list to prevent checking it twice
-    creatures.erase(it);
+    // Retain it in candidate validation: a healer's location can be inside this
+    // very hazard. Removing it here made the healer shortcut falsely look safe.
 
     // Generate the initial angle directly behind the bot looking at the closest creature
     WorldPosition botPosition(bot);
@@ -176,7 +323,7 @@ bool MoveAwayFromCreature::CreatureSearchHelperFunction(Event& event, uint32 cre
         for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
         {
             Player* member = ref->getSource();
-            if (!member || !sServerFacade.IsAlive(member))
+            if (!member || !member->IsInWorld() || member->GetMap() != bot->GetMap() || !sServerFacade.IsAlive(member))
                 continue;
 
             if (ai->IsHeal(member, true))
@@ -189,13 +336,15 @@ bool MoveAwayFromCreature::CreatureSearchHelperFunction(Event& event, uint32 cre
         if (!points.empty())
         {
             points.sort([botPosition](WorldPosition i, WorldPosition j) { return botPosition.fDist(i) < botPosition.fDist(j); });
-            WorldPosition* validPoint = &points.front();
-            if (IsValidPoint(points.front(), creatures, hazards))
+            unsigned checked = 0;
+            for (const WorldPosition& point : points)
             {
-                if (MoveTo(bot->GetMapId(), validPoint->getX(), validPoint->getY(), validPoint->getZ(), false, IsReaction(), false, false))
+                if (++checked > 8) break;
+                if (IsValidPoint(point, creatures, hazards) &&
+                    MoveTo(bot->GetMapId(), point.getX(), point.getY(), point.getZ(), false, IsReaction(), false, false))
                 {
                     if (IsReaction())
-                        WaitForReach(validPoint->distance(botPosition));
+                        WaitForReach(point.distance(botPosition));
                     return true;
                 }
             }
@@ -322,12 +471,77 @@ bool MoveAwayFromCreature::IsHazardNearby(const WorldPosition& point, const std:
 
 bool MoveAwayFromSpecificCreatures::Execute(Event& event)
 {
-    std::set<uint32>&creatureIDList = AI_VALUE(std::set<uint32>&, "avoid creature list");
-    for (const uint32 creatureToCheck : creatureIDList)
+    const std::set<uint32>& creatureIDList = AI_VALUE(std::set<uint32>&, "avoid creature list");
+    return CreatureSearchHelperFunction(event, creatureIDList);
+}
+
+
+Unit* TharonjaSkeletonAction::GetBoss()
+{
+#ifdef MANGOSBOT_TWO
+    if (!bot->IsInWorld() || !bot->IsAlive() || bot->GetMapId() != 600 ||
+        !bot->IsInCombat() || !bot->GetGroup() || bot->HasCharmer() ||
+        bot->IsBeingTeleported() || ai->IsRealPlayer() || bot->GetShapeshiftForm() != 10)
+        return nullptr;
+    SpellAuraHolder* gift = bot->GetSpellAuraHolder(52509);
+    Unit* boss = gift ? gift->GetCaster() : nullptr;
+    if (boss && boss->GetEntry() == 26632 && boss->IsInWorld() && boss->IsAlive() &&
+        boss->IsInCombat() && !boss->HasCharmer() && bot->IsInMap(boss) &&
+        !sServerFacade.IsFriendlyTo(bot, boss))
+        return boss;
+#endif
+    return nullptr;
+}
+
+uint32 TharonjaSkeletonAction::SelectSpell(Unit* boss, Unit*& target)
+{
+    target = nullptr;
+#ifdef MANGOSBOT_TWO
+    if (!boss) return 0;
+    const SpellShapeshiftFormEntry* form = sSpellShapeshiftFormStore.LookupEntry(10);
+    if (!form) return 0;
+    auto ready = [&](uint32 id, Unit* recipient) {
+        // These are temporary native form-bar spells, not learned class spells.
+        // Verify the form grants them before using the normal cast checks.
+        bool granted = false;
+        for (uint32 available : form->spellId)
+            if (available == id) granted = true;
+        if (!granted || !ai->CanCastSpell(id, recipient, 0, false)) return false;
+        target = recipient;
+        return true;
+    };
+    // Touch of Life is a hostile life drain, not a friendly-target heal.
+    if (bot->GetHealthPercent() < 80.0f && ready(49617, boss)) return 49617;
+    if ((boss->GetVictim() == bot || bot->GetHealthPercent() < 60.0f) &&
+        !bot->HasAura(49609) && ready(49609, bot)) return 49609;
+    if (ai->IsTank(bot) && boss->GetVictim() && boss->GetVictim() != bot &&
+        ready(49613, boss)) return 49613;
+    if (ready(50799, boss)) return 50799;
+#endif
+    return 0;
+}
+
+bool TharonjaSkeletonAction::isUseful()
+{
+    Unit* boss = GetBoss();
+    if (!boss) return false;
+    Unit* target = nullptr;
+    return SelectSpell(boss, target) || !bot->CanReachWithMeleeAttack(boss);
+}
+
+bool TharonjaSkeletonAction::Execute(Event& event)
+{
+    Unit* boss = GetBoss();
+    if (!boss) return false;
+    Unit* target = nullptr;
+    uint32 spell = SelectSpell(boss, target);
+    if (spell)
     {
-        bool result = CreatureSearchHelperFunction(event, creatureToCheck);
-        if (result)
-            return result;
+        uint32 duration = 0;
+        if (!ai->CastSpell(spell, target, nullptr, false, &duration)) return false;
+        SetDuration(duration);
+        return true;
     }
-    return false;
+    // Ordinary pathfinding/hazard checks remain responsible for approaching.
+    return !bot->CanReachWithMeleeAttack(boss) && MoveNear(boss, 2.0f);
 }

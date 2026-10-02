@@ -1,9 +1,38 @@
 #pragma once
 #include "DungeonTriggers.h"
 #include "GenericTriggers.h"
+#include "playerbot/strategy/actions/MoltenCoreDungeonActions.h"
 
 namespace ai
 {
+    class MoltenCoreImpTrigger : public Trigger
+    {
+    public:
+        MoltenCoreImpTrigger(PlayerbotAI* ai) : Trigger(ai, "molten core imp pack", 1) {}
+        bool IsActive() override { return MoltenCoreImpPack(ai); }
+    };
+
+    class MoltenCoreSupportTrigger : public Trigger
+    {
+    public:
+        MoltenCoreSupportTrigger(PlayerbotAI* ai) : Trigger(ai, "molten core support", 1) {}
+        bool IsActive() override { MoltenCoreSupportAction action(ai); return action.isUseful(); }
+    };
+
+    class MoltenCorePriorityTargetTrigger : public Trigger
+    {
+    public:
+        MoltenCorePriorityTargetTrigger(PlayerbotAI* ai) : Trigger(ai, "molten core priority target", 1) {}
+        bool IsActive() override { MoltenCorePriorityTargetAction action(ai); return action.isUseful(); }
+    };
+
+    class MoltenCorePositionTrigger : public Trigger
+    {
+    public:
+        MoltenCorePositionTrigger(PlayerbotAI* ai) : Trigger(ai, "molten core safe position", 1) {}
+        bool IsActive() override { MoltenCorePositionAction action(ai); return action.isUseful(); }
+    };
+
     class MoltenCoreEnterDungeonTrigger : public EnterDungeonTrigger
     {
     public:

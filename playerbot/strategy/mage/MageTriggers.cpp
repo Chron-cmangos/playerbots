@@ -5,6 +5,21 @@
 
 using namespace ai;
 
+bool SpellstealTrigger::IsActive()
+{
+    CastSpellstealAction action(ai);
+    return action.isUseful();
+}
+
+bool FingersOfFrostTrigger::IsActive()
+{
+#ifdef MANGOSBOT_TWO
+    return bot->HasAura(44544); // Native frozen-target proc, not talent 44543/44545.
+#else
+    return false;
+#endif
+}
+
 bool AnyMageArmorTrigger::IsActive()
 {
     Unit* target = GetTarget();

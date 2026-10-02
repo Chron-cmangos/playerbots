@@ -11,7 +11,7 @@ bool TellTargetAction::Execute(Event& event)
 {
     Player* requester = event.getOwner() ? event.getOwner() : GetMaster();
     PlayerbotAI* ai = bot->GetPlayerbotAI();
-    Unit* target = ai->GetUnit(context->GetValue<ObjectGuid>("current target")->Get());
+    Unit* target = ai->GetUnit(ai->GetAiObjectContext()->GetValue<ObjectGuid>("current target")->Get());
     if (target)
     {
         std::ostringstream out;

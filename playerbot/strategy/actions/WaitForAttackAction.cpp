@@ -37,24 +37,19 @@ bool WaitForAttackKeepSafeDistanceAction::Execute(Event& event)
 
         if (target->IsAlive())
         {
-            const float safeDistance = WaitForAttackStrategy::GetSafeDistance();
+            const float safeDistance = std::max(float(target->GetAttackDistance(bot) + ATTACK_DISTANCE), WaitForAttackStrategy::GetSafeDistance());
             const float safeDistanceThreshold = WaitForAttackStrategy::GetSafeDistanceThreshold();
 
-            // only reposition if it makes sense, ie. we are actually too close to danger
-            if (WorldPosition(bot).fDist(basePos) <= safeDistance)
+            // Find the best point around the target.
+            const WorldPosition bestPoint = GetBestPoint(basePos, (safeDistance - safeDistanceThreshold), safeDistance);
+            if (bestPoint)
             {
-                // Find the best point around the target.
-                const WorldPosition bestPoint = GetBestPoint(basePos, (safeDistance - safeDistanceThreshold), safeDistance);
-                if (bestPoint)
-                {
-                    // Move to the best point
-                    bool success = MoveTo(bestPoint.getMapId(), bestPoint.getX(), bestPoint.getY(), bestPoint.getZ(), false, false, false, true);
-                    if (success)
-                        WaitForReach(WorldPosition(bot).fDist(bestPoint));
-                    return success;
-                }
+                // Move to the best point
+                bool success = MoveTo(bestPoint.getMapId(), bestPoint.getX(), bestPoint.getY(), bestPoint.getZ(), false, false, false, true);
+                if (success)
+                    WaitForReach(WorldPosition(bot).fDist(bestPoint));
+                return success;
             }
-
         }
     }
 
@@ -67,7 +62,7 @@ const ai::WorldPosition WaitForAttackKeepSafeDistanceAction::GetBestPoint(const 
     const WorldPosition targetPosition = pos;
     const int8 startDir = urand(0, 1) * 2 - 1;
     const float radiansIncrement = (5.0f / 180.0f) * (M_PI_F);
-    const float startAngle = targetPosition.getAngleTo(botPosition) + urand(0.f,radiansIncrement) * startDir;
+    const float startAngle = targetPosition.getAngleTo(botPosition) + frand(0.0f, radiansIncrement) * startDir;
     const float distance = frand(minDistance, maxDistance);
     const std::list<ObjectGuid> enemies = AI_VALUE(std::list<ObjectGuid>, "possible targets no los");
 
@@ -84,8 +79,10 @@ const ai::WorldPosition WaitForAttackKeepSafeDistanceAction::GetBestPoint(const 
 
     for (float tryAngle = 0.0f; tryAngle < M_PI_F; tryAngle += radiansIncrement)
     {
-        for (int8 tryDir = -1; tryAngle && tryDir < 1; tryDir += 2)
+        for (int8 tryDir = -1; tryDir <= 1; tryDir += 2)
         {
+            // Test the straight candidate once and both sides at other angles.
+            if (tryAngle == 0.0f && tryDir == 1) continue;
             float pointAngle = startAngle;
             pointAngle += tryAngle * startDir * tryDir;
 
@@ -123,13 +120,8 @@ const ai::WorldPosition WaitForAttackKeepSafeDistanceAction::GetBestPoint(const 
     WorldPosition minimumMove = botPosition;
     if (!points.empty())
     {
-        auto it = std::min_element(points.begin(), points.end(),
-            [botPosition](const WorldPosition& i, const WorldPosition& j) {
-                return botPosition.fDist(i) < botPosition.fDist(j);
-            });
-
-        if (it != points.end())
-            return *it;
+        points.sort([botPosition](WorldPosition i, WorldPosition j) { return botPosition.fDist(i) < botPosition.fDist(j); });
+        return points.front();
     }
     return minimumMove;
 }
@@ -141,23 +133,22 @@ bool WaitForAttackKeepSafeDistanceAction::IsEnemyClose(const WorldPosition& poin
         Unit* enemy = ai->GetUnit(enemyGUID);
         if (enemy)
         {
-            // If the enemy is not neutral
-            if (enemy->CanAttackOnSight(bot))
+            // If the enemy is visible in the same map
+            if (enemy->IsWithinLOSInMap(bot))
             {
-                const float enemyAttackRange = enemy->GetAttackDistance(bot) + ATTACK_DISTANCE;
-                const float distanceToPoint = WorldPosition(enemy).sqDistance(point);
-                if (distanceToPoint <= (enemyAttackRange * enemyAttackRange))
+                // If the enemy is not neutral
+                if (enemy->CanAttackOnSight(bot))
                 {
-                    return true;
+                    const float enemyAttackRange = enemy->GetAttackDistance(bot) + ATTACK_DISTANCE;
+                    const float distanceToPoint = WorldPosition(enemy).sqDistance(point);
+                    if (distanceToPoint <= (enemyAttackRange * enemyAttackRange))
+                    {
+                        return true;
+                    }
                 }
             }
         }
     }
 
     return false;
-}
-
-bool WaitForAttackKeepSafeDistanceAction::isUseful()
-{
-    return !ai->HasStrategy("stay", ai->GetState()) && (!ai->HasStrategy("guard", ai->GetState()) ||  WaitForAttackStrategy::GetSafeDistance() <= ai->GetRange("guard")) && ai->GetRange("flee") > 5.0f;
 }

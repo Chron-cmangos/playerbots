@@ -5,6 +5,11 @@
 [AiPlayerbotConf]
 ConfVersion=2020072501
 
+# Allow autonomous travel for random bots even when AutoDoQuests is disabled.
+# Uses existing travel strategies and activity limits; does not enable quest travel.
+# Set to 0 to retain the previous AutoDoQuests-coupled travel behavior.
+AiPlayerbot.AutonomousTravel = 1
+
 # Enable or disable AI Playerbot
 AiPlayerbot.Enabled = 1
 
@@ -82,12 +87,10 @@ AiPlayerbot.RandomBotAccountCount = 200
 # Percentage of fully active bots. Default is 10, higher numbers may affect performance
 # AiPlayerbot.botActiveAlone = 10
 
-# Limit random bot max level to online players max level + SyncLevelMaxAbove.
-# SyncLevelNoPlayer is the reference level used while no player is online.
-# It defaults to AiPlayerbot.randombotStartingLevel.
+# Limit random bot max level to online players max level + 5 and uses reference level 1 without a player.
 # AiPlayerbot.SyncLevelWithPlayers = 0
 # AiPlayerbot.SyncLevelMaxAbove = 5
-# AiPlayerbot.SyncLevelNoPlayer = 5
+# AiPlayerbot.SyncLevelNoPlayer = 1
 
 # Sync non-random bot alt levels to master level automatically
 # When enabled, bot alts will level up one level at a time to match their master's level
@@ -206,14 +209,8 @@ AiPlayerbot.RandomBotShowCloak = 1
 # Every bots started on the specified level and level up by killing mobs.
 AiPlayerbot.DisableRandomLevels = 0
 
-# Random bots at or below this level are treated as new characters: when they are
-# randomized they get a full reroll of level, gear, spells and talents. Bots above it
-# only get gear upgrades (if AiPlayerbot.RandomGearUpgradeEnabled = 1), unless
-# AiPlayerbot.SyncLevelWithPlayers finds them outside the allowed level range.
-# With AiPlayerbot.DisableRandomLevels = 1 the reroll keeps the bot's current level.
-# 0 disables the full reroll. This does not set the level new bots start at.
-# Also the default for AiPlayerbot.SyncLevelNoPlayer.
-# Default: 5
+# Set randombots starting level here if "AiPlayerbot.DisableRandomLevels" enabled
+# Recommended: 5+
 #AiPlayerbot.randombotStartingLevel = 5
 
 # Set XP rate for bots (default: 1)
@@ -326,8 +323,9 @@ AiPlayerbot.RandomBotQuestIds = 7848,3802,5505,6502,7761
 # prefix is used as a word in "<word> [item link]"
 # AiPlayerbot.ToxicLinksPrefix = gnomes
 #
-# chance to suggest thunderfury
-# AiPlayerbot.BroadcastChanceSuggestThunderfury = 1
+# Chance to suggest Thunderfury. Disabled by default to prevent large bot populations
+# from creating self-sustaining world-chat reply cascades.
+AiPlayerbot.BroadcastChanceSuggestThunderfury = 0
 #
 # does not depend on global chance
 # AiPlayerbot.BroadcastChanceGuildManagement = 30000
@@ -336,8 +334,8 @@ AiPlayerbot.RandomBotQuestIds = 7848,3802,5505,6502,7761
 
 # Chance to reply to toxic links with toxic links (0-100)
 # AiPlayerbot.ToxicLinksRepliesChance = 30
-# Chance to reply to thunderfury with thunderfury (0-100)
-# AiPlayerbot.ThunderfuryRepliesChance = 40
+# Chance to reply to Thunderfury with Thunderfury (0-100).
+AiPlayerbot.ThunderfuryRepliesChance = 0
 # Bots will chat in guild about certain events (int) (0-100)
 # AiPlayerbot.GuildRepliesRate = 100         # Reply someone saying something.
 
@@ -825,7 +823,7 @@ AiPlayerbot.PremadeSpecGlyp.11.8.80 = Aquatic Form,Challenging Roar,Claw|1082,Da
 #AiPlayerbot.CommandPrefix =
 
 # Max AI iterations per tick
-#AiPlayerbot.IterationsPerTick = 10
+AiPlayerbot.IterationsPerTick = 10
 
 # Allow/deny bots from your guild
 AiPlayerbot.AllowGuildBots = 1
@@ -842,8 +840,16 @@ AiPlayerbot.GlobalCooldown = 1500
 # Delay between two bot actions (default 100)
 AiPlayerbot.ReactDelay = 500
 
+# Backoff for an unchanged failed navigation request (milliseconds)
+AiPlayerbot.PathFailureRetryMs = 3000
+
 # Inactivity delay
 AiPlayerbot.PassiveDelay = 10000
+AiPlayerbot.ValueCacheCleanupInterval = 60000
+AiPlayerbot.FailedActionRetryBase = 250
+AiPlayerbot.FailedActionRetryMax = 2000
+AiPlayerbot.FailedActionCacheTtl = 30000
+AiPlayerbot.FailedActionCacheMaxEntries = 64
 
 # Minimum delay between repeating actions (chat messages, emotes etc)
 AiPlayerbot.RepeatDelay = 5000
@@ -908,6 +914,16 @@ AiPlayerbot.FleeingEnabled = 1
 
 # Random bot default strategies (applied after defaults)
 #AiPlayerbot.RandomBotCombatStrategies = +dps,+dps assist,-threat
+
+# ManTech diagnostics mode: 0=off, 1=low-cost production aggregates, 2=deep analysis.
+# Mode is authoritative; Enabled remains a backward-compatible alias.
+AiPlayerbot.Diagnostics.Enabled = 0
+AiPlayerbot.Diagnostics.Mode = 0
+AiPlayerbot.Diagnostics.Interval = 30000
+AiPlayerbot.Diagnostics.EngineSampleRate = 16
+AiPlayerbot.Diagnostics.TopFailures = 10
+AiPlayerbot.Diagnostics.MaxFailureKeys = 2048
+AiPlayerbot.Diagnostics.LogFile = PlayerbotDiagnostics.log
 #AiPlayerbot.RandomBotNonCombatStrategies = +grind,+loot,+rpg,+custom::say
 #AiPlayerbot.RandomBotReactStrategies = 
 #AiPlayerbot.RandomBotDeadStrategies = 
@@ -937,8 +953,11 @@ AiPlayerbot.FleeingEnabled = 1
 #AiPlayerbot.OpenGoSpell = 6477
 
 # Intervals
-#AiPlayerbot.RandomBotUpdateInterval = 1000
+AiPlayerbot.RandomBotUpdateInterval = 1000
 #AiPlayerbot.RandomBotsMaxLoginsPerInterval = 10
+AiPlayerbot.RandomBotLoginDbQueueLimit = 256
+AiPlayerbot.RandomBotDatabasePingInterval = 10000
+AiPlayerbot.PerformanceMapScanInterval = 30000
 AiPlayerbot.RandomBotCountChangeMinInterval = 1800
 AiPlayerbot.RandomBotCountChangeMaxInterval = 7200
 #AiPlayerbot.MinRandomBotInWorldTime = 3600
@@ -1110,7 +1129,8 @@ AiPlayerbot.RandomBotTeleportDistance = 100
 # Mostlikely::I like to travel a lot.
 # Flekz::I hold the power of ancient wizardry.
 
-AiPlayerbot.LLMDefaultPromptsFile = llm_character_card.txt
+# Set to "" to disable optional character-card file import. Inline LLM prompts are unaffected.
+AiPlayerbot.LLMDefaultPromptsFile = ""
 
 # Should previous conversations from all channels be mixed?
 # AiPlayerbot.LLMGlobalContext = 0
@@ -1182,3 +1202,30 @@ AiPlayerbot.LLMDefaultPromptsFile = llm_character_card.txt
 
 # Mystery config value. Currently enables async bot pathfinding. Rarely crashes the server.
 # AiPlayerbot.TweakValue = 0
+# Temporary development-only combat/action diagnostics (see docs/combat-diagnostics.md).
+# Master AiPlayerbot.Diagnostics.Mode must also be nonzero.
+AiPlayerbot.CombatDiagnostics.Enabled = 0
+AiPlayerbot.CombatDiagnostics.SampleRate = 16
+AiPlayerbot.CombatDiagnostics.ClassMask = 4094
+AiPlayerbot.CombatDiagnostics.TraceBot = 0
+AiPlayerbot.CombatDiagnostics.MaxKeys = 2048
+AiPlayerbot.CombatDiagnostics.MaxTraces = 128
+AiPlayerbot.CombatDiagnostics.MaxFileMB = 8
+
+# Bound routine manager scans; the cursor resumes next pass.
+# A single ProcessBot call completes before the time budget is checked.
+AiPlayerbot.RandomBotManagerBudgetMs = 10
+AiPlayerbot.RandomBotManagerScanLimit = 512
+
+# Revive a dead bot only after a completed, validated convenience summon.
+# Group invitations never revive bots. Native summon/ritual rules are unchanged.
+# Default: 1 (preserves the existing convenience-summon revival policy).
+AiPlayerbot.Recruitment.Revive = 1
+
+# Experimental reliability adaptations; enable individually in DEV.
+AiPlayerbot.Reliability.UnreachableTargets = 0
+AiPlayerbot.Reliability.DungeonCorpse = 0
+AiPlayerbot.Reliability.BodyPull = 0
+AiPlayerbot.Reliability.PartyCommands = 0
+# Bounded, observation-only episodes in LogsDir/PlayerbotIncidents.jsonl.
+AiPlayerbot.Reliability.IncidentHistory = 0

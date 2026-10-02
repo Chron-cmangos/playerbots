@@ -2,34 +2,47 @@
 #include "playerbot/playerbot.h"
 #include "KarazhanDungeonTriggers.h"
 #include "GenericTriggers.h"
+#include "playerbot/strategy/actions/KarazhanDungeonActions.h"
 #include "Grids/GridNotifiers.h"
 #include "Grids/GridNotifiersImpl.h"
 #include "Grids/CellImpl.h"
 
 using namespace ai;
 
-bool NetherspiteBeamsCheatNeedRefreshTrigger::IsActive()
+bool KarazhanPriorityTargetTrigger::IsActive()
 {
-    //Checking that is portal phase
-    std::list<Unit*> creatures;
-    MaNGOS::AllCreaturesOfEntryInRangeCheck u_check(bot, 17369, 100);
-    MaNGOS::UnitListSearcher<MaNGOS::AllCreaturesOfEntryInRangeCheck> searcher(creatures, u_check);
-    Cell::VisitAllObjects(bot, searcher, 100);
+    KarazhanPriorityTargetAction action(ai);
+    return action.isUseful();
+}
 
-    if (creatures.empty())
-        return false;
+bool AranFlameWreathTrigger::IsActive()
+{
+    AranFlameWreathHoldAction action(ai);
+    return action.isUseful();
+}
 
-    //Checking that is Netherspite target
-    return AI_VALUE2(bool, "has aggro", "current target");
+bool NetherspiteBeamPositionTrigger::IsActive()
+{
+    EncounterPosition plan;
+    return NetherspitePositionAction::GetPlan(ai, plan) &&
+        bot->GetDistance(plan.destination.x, plan.destination.y, plan.destination.z) > 1.0f;
 }
 
 bool PrinceMalchezaarTooCloseTrigger::IsActive()
 {
+    if (!bot->IsInWorld() || !bot->IsAlive() || bot->HasCharmer() || bot->IsBeingTeleported() ||
+        bot->GetMapId() != 532 || !bot->IsInCombat()) return false;
     PullStrategy* strategy = PullStrategy::Get(ai);
     if (strategy && strategy->HasPullStarted())
         return false;
-    Unit* target = ai->GetUnit(AI_VALUE(ObjectGuid, "tank target"));
-    if (!target) target = ai->GetUnit(AI_VALUE(ObjectGuid, "current target"));
+    Unit* target = nullptr;
+    for (const auto& guid : AI_VALUE(std::list<ObjectGuid>, "attackers"))
+    {
+        Unit* unit = ai->GetUnit(guid);
+        if (unit && unit->GetEntry() == 15690 && unit->IsInWorld() && bot->IsInMap(unit) &&
+            unit->IsAlive() && unit->IsInCombat()) { target = unit; break; }
+    }
+    if (!target) return false;
     if (bot->HasAura(30843) || (EnfeeblePart() && target && target->GetVictim() != bot) || MeleeWaitCheck(target)) 
         return true;
     if (ai->IsRanged(bot, true))
@@ -59,12 +72,12 @@ bool PrinceMalchezaarTooCloseTrigger::EnfeeblePart()
 {
     Group* group = bot->GetGroup();
     if (!group)
-        return ai->GetUnit(AI_VALUE(ObjectGuid, "master target"));
+        return false;
 
     for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
     {
         Player* member = ref->getSource();
-        if (!member || !sServerFacade.IsAlive(member))
+        if (!member || !member->IsInWorld() || member->IsBeingTeleported() || !bot->IsInMap(member) || !sServerFacade.IsAlive(member))
             continue;
 
         if (member->HasAura(30843))

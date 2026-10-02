@@ -1,5 +1,7 @@
 #pragma once
+#include "playerbot/PartyCombatSupport.h"
 #include "playerbot/strategy/Trigger.h"
+#include "playerbot/strategy/hunter/HunterCombatPolicy.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/ServerFacade.h"
 #include "playerbot/strategy/generic/CombatStrategy.h"
@@ -15,9 +17,37 @@ namespace ai
         
         virtual bool IsActive() override
         {
+            // Ranged spacing is not emergency fleeing. Persisted or manually
+            // added ranged strategies must not make melee-only classes kite.
+            switch (bot->getClass())
+            {
+                case CLASS_WARRIOR:
+                case CLASS_ROGUE:
+#ifdef MANGOSBOT_TWO
+                case CLASS_DEATH_KNIGHT:
+#endif
+                    return false;
+                default:
+                    break;
+            }
+            if (ai->ContainsStrategy(STRATEGY_TYPE_MELEE) || ai->IsTank(bot))
+                return false;
+
             Unit* target = ai->GetUnit(AI_VALUE(ObjectGuid, "current target"));
             if (target)
             {
+                if (bot->getClass() == CLASS_HUNTER)
+                {
+                    if (!HunterAmmoReady(ai)) return false;
+                    const auto bounds = HunterShotRange(ai, target);
+                    const float min = bounds.first + 1.0f;
+                    if (bot->GetDistance(target, true, DIST_CALC_NONE) >= min * min) return false;
+                    // A fast pursuer requires melee fallback; an immobilized
+                    // enemy or one held by somebody else allows spacing out.
+                    return target->IsImmobilizedState() || target->GetVictim() != bot ||
+                        target->GetSpeed(MOVE_RUN) <= bot->GetSpeed(MOVE_RUN) * 0.5f;
+                }
+
                 if (ai->HasStrategy("follow", BotState::BOT_STATE_COMBAT) ||
                     ai->HasStrategy("guard", BotState::BOT_STATE_COMBAT) ||
                     ai->HasStrategy("stay", BotState::BOT_STATE_COMBAT) ||
@@ -338,6 +368,9 @@ namespace ai
 
             if (!followTarget || !ai->IsSafe(followTarget))
                 return false;
+
+            if (ai->IsHeal(bot) && followTarget == GetPartyCombatAnchor(ai))
+                return true; // FollowAction checks healing range and line of sight.
 
             //We need to land or liftoff.
             if (followTarget->IsFlying() != bot->IsFlying() || followTarget->IsTaxiFlying())

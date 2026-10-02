@@ -55,10 +55,12 @@ public:
     static std::list<uint32> specialQuestIds;
     void InitSkills();
     void EnchantEquipment();
-    void EquipGear() { InitEquipment(false, false); InitGems(); }
-    void EquipGearBest() { return InitEquipment(false, false, false); }
-    void EquipGearPartialUpgrade() { return InitEquipment(false, false, true, true); }
-    void UpgradeGear(bool syncWithMaster) { return InitEquipment(!syncWithMaster, syncWithMaster); }
+    void EquipGear() { InitEquipment(false, false); InitGems(); InitAmmo(); }
+    void EquipGearBest() { InitEquipment(false, false, false); InitAmmo(); }
+    void EquipGearPartialUpgrade() { InitEquipment(false, false, true, true); InitAmmo(); }
+    void UpgradeGear(bool syncWithMaster) { InitEquipment(!syncWithMaster, syncWithMaster); InitAmmo(); }
+    void BeginSupplyRequest() { supplyRequest = true; supplyFailed = false; }
+    bool SupplyRequestFailed() const { return supplyFailed; }
     void AddReagents() { return InitReagents(); }
     void AddPotions() { return InitPotions(); }
     void AddConsumes() { return AddConsumables(); }
@@ -68,6 +70,9 @@ public:
     void InitPetSpells();
 
 private:
+    bool supplyRequest = false;
+    bool supplyFailed = false;
+    Item* StoreSupplyItem(uint32 entry, uint32 count);
     void Prepare();
     void InitSecondEquipmentSet();
     void Shuffle(std::vector<uint32>& items);

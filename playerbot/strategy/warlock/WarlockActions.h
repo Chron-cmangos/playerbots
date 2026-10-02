@@ -5,6 +5,11 @@
 
 namespace ai
 {
+#ifdef MANGOSBOT_TWO
+    BUFF_ACTION(CastMetamorphosisAction, "metamorphosis");
+    SPELL_ACTION(CastChaosBoltAction, "chaos bolt");
+    RANGED_DEBUFF_ACTION(CastHauntAction, "haunt");
+#endif
 	SNARE_ACTION(CastDeathCoilSnareAction, "death coil");
 	ENEMY_HEALER_ACTION(CastDeathCoilOnHealerAction, "death coil");
 	SPELL_ACTION(CastDeathCoilAction, "death coil");
@@ -124,7 +129,21 @@ namespace ai
 		CastSoulFireAction(PlayerbotAI* ai) : CastSpellAction(ai, "soul fire") {}
     };
 
-	BUFF_ACTION(CastDarkPactAction, "dark pact");
+    class CastDarkPactAction : public CastBuffSpellAction
+    {
+    public:
+        CastDarkPactAction(PlayerbotAI* ai) : CastBuffSpellAction(ai, "dark pact") {}
+        bool isUseful() override
+        {
+            Pet* pet = bot->GetPet();
+            // Native execution can transfer zero mana. Do not let a ready but
+            // empty pet drain outrank Life Tap indefinitely; retain pet reserves.
+            return pet && pet->IsAlive() && pet->GetMaxPower(POWER_MANA) &&
+                pet->GetPower(POWER_MANA) > pet->GetMaxPower(POWER_MANA) / 5 &&
+                bot->GetPower(POWER_MANA) < bot->GetMaxPower(POWER_MANA) * sPlayerbotAIConfig.lowMana / 100 &&
+                CastBuffSpellAction::isUseful();
+        }
+    };
 
 	class CastDrainManaAction : public CastSpellAction
 	{
@@ -294,8 +313,9 @@ namespace ai
 
         bool isUseful() override
         {
+            if (!CastBuffSpellAction::isUseful()) return false;
             Unit* pet = ai->GetUnit(AI_VALUE(ObjectGuid, "pet target"));
-            if (pet)
+            if (pet && pet->IsAlive())
             {
                 return pet->GetEntry() != 416;
             }
@@ -312,8 +332,9 @@ namespace ai
 
         bool isUseful() override
         {
+            if (!CastSpellAction::isUseful()) return false;
             Unit* pet = ai->GetUnit(AI_VALUE(ObjectGuid, "pet target"));
-            if (pet)
+            if (pet && pet->IsAlive())
             {
                 return pet->GetEntry() != 1863;
             }
@@ -330,8 +351,9 @@ namespace ai
 
         bool isUseful() override
         {
+            if (!CastSpellAction::isUseful()) return false;
             Unit* pet = ai->GetUnit(AI_VALUE(ObjectGuid, "pet target"));
-            if (pet)
+            if (pet && pet->IsAlive())
             {
                 return pet->GetEntry() != 417;
             }
@@ -348,8 +370,9 @@ namespace ai
 
         bool isUseful() override
         {
+            if (!CastSpellAction::isUseful()) return false;
             Unit* pet = ai->GetUnit(AI_VALUE(ObjectGuid, "pet target"));
-            if (pet)
+            if (pet && pet->IsAlive())
             {
                 return pet->GetEntry() != 1860;
             }
@@ -366,8 +389,9 @@ namespace ai
 
         bool isUseful() override
         {
+            if (!CastSpellAction::isUseful()) return false;
             Unit* pet = ai->GetUnit(AI_VALUE(ObjectGuid, "pet target"));
-            if (pet)
+            if (pet && pet->IsAlive())
             {
                 return pet->GetEntry() != 17252;
             }
@@ -380,7 +404,7 @@ namespace ai
 	{
 	public:
 		CastSummonInfernoAction(PlayerbotAI* ai) : CastSpellAction(ai, "inferno") {}
-		virtual bool isPossible() { return true; }
+        bool isPossible() override { return CastSpellAction::isPossible(); }
 	};
 
 	class CastCreateHealthstoneAction : public CastSpellAction
@@ -482,7 +506,7 @@ namespace ai
     public:
         CastLifeTapAction(PlayerbotAI* ai) : CastSpellAction(ai, "life tap") {}
         virtual std::string GetTargetName() override { return "self target"; }
-        virtual bool isUseful() override { return AI_VALUE2(uint8, "health", "self target") > sPlayerbotAIConfig.lowHealth; }
+        virtual bool isUseful() override { return CastSpellAction::isUseful() && bot->GetHealthPercent() > sPlayerbotAIConfig.lowHealth; }
     };
 
     class CastAmplifyCurseAction : public CastBuffSpellAction

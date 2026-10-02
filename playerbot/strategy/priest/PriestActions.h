@@ -1,8 +1,15 @@
 #pragma once
+#include "playerbot/strategy/actions/HealerSupportActions.h"
 #include "playerbot/strategy/actions/GenericActions.h"
 
 namespace ai
 {
+#ifdef MANGOSBOT_TWO
+    BUFF_ACTION_U(CastDispersionAction, "dispersion", bot->IsInCombat() && !ai->IsHeal(bot) && CastBuffSpellAction::isUseful());
+    BUFF_ACTION_U(CastDivineHymnAction, "divine hymn", ai->IsHeal(bot) && CastBuffSpellAction::isUseful());
+    HEAL_PARTY_ACTION(CastPenanceOnPartyAction, "penance");
+    HEAL_ACTION(CastPenanceAction, "penance");
+#endif
     // disc
     BUFF_ACTION(CastPowerWordFortitudeAction, "power word: fortitude");
     BUFF_PARTY_ACTION(CastPowerWordFortitudeOnPartyAction, "power word: fortitude");
@@ -14,7 +21,7 @@ namespace ai
     CURE_PARTY_ACTION(CastDispelMagicOnPartyAction, "dispel magic", DISPEL_MAGIC);
     SPELL_ACTION(CastDispelMagicOnTargetAction, "dispel magic");
     CC_ACTION(CastShackleUndeadAction, "shackle undead");
-    SPELL_ACTION_U(CastManaBurnAction, "mana burn", AI_VALUE2(uint8, "mana", "self target") < 50 && AI_VALUE2(uint8, "mana", "current target") >= 20);
+    SPELL_ACTION_U(CastManaBurnAction, "mana burn", CastSpellAction::isUseful() && AI_VALUE2(uint8, "mana", "self target") < 50 && AI_VALUE2(bool, "has mana", "current target") && AI_VALUE2(uint8, "mana", "current target") >= 20);
     BUFF_ACTION(CastLevitateAction, "levitate");
     BUFF_ACTION(CastDivineSpiritAction, "divine spirit");
     BUFF_PARTY_ACTION(CastDivineSpiritOnPartyAction, "divine spirit");
@@ -40,10 +47,22 @@ namespace ai
     HEAL_ACTION(CastRenewAction, "renew");
     HEAL_HOT_PARTY_ACTION(CastRenewOnPartyAction, "renew");
     // holy 2.4.3
-    HEAL_PARTY_ACTION(CastPrayerOfMendingAction, "prayer of mending");
-    HEAL_PARTY_ACTION(CastBindingHealAction, "binding heal");
+    class CastPrayerOfMendingAction : public CastMaintainedHealerBuffAction
+    {
+    public:
+        CastPrayerOfMendingAction(PlayerbotAI* ai) : CastMaintainedHealerBuffAction(ai, "prayer of mending") {}
+    };
+    class CastBindingHealAction : public CastSelfAndPartyHealingAction
+    {
+    public:
+        CastBindingHealAction(PlayerbotAI* ai) : CastSelfAndPartyHealingAction(ai, "binding heal") {}
+    };
     
-    BUFF_ACTION(CastPrayerOfHealingAction, "prayer of healing");
+#ifdef MANGOSBOT_TWO
+    AOE_HEAL_ACTION(CastPrayerOfHealingAction, "prayer of healing");
+#else
+    HEAL_ACTION(CastPrayerOfHealingAction, "prayer of healing");
+#endif
     AOE_HEAL_ACTION(CastLightwellAction, "lightwell");
     AOE_HEAL_ACTION(CastCircleOfHealingAction, "circle of healing");
 
@@ -65,23 +84,32 @@ namespace ai
     SPELL_ACTION(CastMindBlastAction, "mind blast");
     SPELL_ACTION(CastPsychicScreamAction, "psychic scream");
     RANGED_DEBUFF_ACTION(CastMindSootheAction, "mind soothe");
-    BUFF_ACTION_U(CastFadeAction, "fade", bot->GetGroup());
+    class CastFadeAction : public CastBuffSpellAction
+    {
+    public:
+        CastFadeAction(PlayerbotAI* ai) : CastBuffSpellAction(ai, "fade") {}
+        bool isUseful() override;
+    };
     BUFF_ACTION(CastShadowProtectionAction, "shadow protection");
     BUFF_PARTY_ACTION(CastShadowProtectionOnPartyAction, "shadow protection");
     GREATER_BUFF_PARTY_ACTION(CastPrayerOfShadowProtectionAction, "prayer of shadow protection", "shadow protection");
     // shadow 2.4.3
-    BUFF_ACTION(CastShadowfiendAction, "shadowfiend");
+    SPELL_ACTION(CastShadowfiendAction, "shadowfiend");
     SPELL_ACTION(CastShadowWordDeathAction, "shadow word: death");
 
     // shadow talents
     SPELL_ACTION(CastMindFlayAction, "mind flay");
+#ifdef MANGOSBOT_TWO
+    BUFF_ACTION(CastVampiricEmbraceAction, "vampiric embrace");
+#else
     RANGED_DEBUFF_ACTION(CastVampiricEmbraceAction, "vampiric embrace");
+#endif
     BUFF_ACTION(CastShadowformAction, "shadowform");
     SPELL_ACTION(CastSilenceAction, "silence");
     ENEMY_HEALER_ACTION(CastSilenceOnEnemyHealerAction, "silence");
     // shadow talents 2.4.3
     RANGED_DEBUFF_ACTION(CastVampiricTouchAction, "vampiric touch");
-    RANGED_DEBUFF_ENEMY_ACTION(CastVampiricTouchActionOnAttacker, "vampiric touch on attacker");
+    RANGED_DEBUFF_ENEMY_ACTION(CastVampiricTouchActionOnAttacker, "vampiric touch");
 
     // racials
     RANGED_DEBUFF_ACTION(CastDevouringPlagueAction, "devouring plague");
@@ -89,7 +117,7 @@ namespace ai
     RANGED_DEBUFF_ACTION(CastHexOfWeaknessAction, "hex of weakness");
     BUFF_ACTION(CastShadowguardAction, "shadowguard");
     HEAL_ACTION(CastDesperatePrayerAction, "desperate prayer");
-    SPELL_ACTION_U(CastStarshardsAction, "starshards", (AI_VALUE2(uint8, "mana", "self target") > 50 && ai->GetUnit(AI_VALUE(ObjectGuid, "current target")) && AI_VALUE2(float, "distance", "current target") > 15.0f));
+    SPELL_ACTION_U(CastStarshardsAction, "starshards", CastSpellAction::isUseful() && (AI_VALUE2(uint8, "mana", "self target") > 50 && ai->GetUnit(AI_VALUE(ObjectGuid, "current target")) && AI_VALUE2(float, "distance", "current target") > 15.0f));
     BUFF_ACTION(CastElunesGraceAction, "elune's grace");
     BUFF_ACTION(CastFeedbackAction, "feedback");
     BUFF_ACTION(CastSymbolOfHopeAction, "symbol of hope");

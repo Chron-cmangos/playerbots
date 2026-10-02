@@ -1,3 +1,4 @@
+#include "playerbot/strategy/MeleeCombatPolicy.h"
 #pragma once
 
 #include "playerbot/strategy/actions/GenericActions.h"
@@ -23,17 +24,18 @@ namespace ai
 	class CastDeathchillAction : public CastBuffSpellAction {
 	public:
 		CastDeathchillAction(PlayerbotAI* ai) : CastBuffSpellAction(ai, "deathchill") {}
-		virtual NextAction** getPrerequisites() {
-			return NextAction::merge(NextAction::array(0, new NextAction("frost presence"), NULL), CastSpellAction::getPrerequisites());
-		}
+        bool isUseful() override { return ai->HasStrategy("boost", BotState::BOT_STATE_COMBAT) && MeleeOpportunity(ai) && (ai->CanCastSpell("frost strike", ai->GetUnit(AI_VALUE(ObjectGuid, "current target")), 0) || ai->CanCastSpell("obliterate", ai->GetUnit(AI_VALUE(ObjectGuid, "current target")), 0) || ai->CanCastSpell("icy touch", ai->GetUnit(AI_VALUE(ObjectGuid, "current target")), 0)) && CastBuffSpellAction::isUseful(); }
+
 	};
 
-	class CastDarkCommandAction : public CastBuffSpellAction {
+    class CastDarkCommandAction : public CastSpellAction {
 	public:
-		CastDarkCommandAction(PlayerbotAI* ai) : CastBuffSpellAction(ai, "dark command") {}
-		virtual NextAction** getPrerequisites() {
-			return NextAction::merge(NextAction::array(0, new NextAction("blood presence"), NULL), CastSpellAction::getPrerequisites());
-		}
+        CastDarkCommandAction(PlayerbotAI* ai) : CastSpellAction(ai, "dark command") {}
+        bool isUseful() override
+        {
+            Unit* target = GetTarget();
+            return target && target->GetVictim() && target->GetVictim() != bot && CastSpellAction::isUseful();
+        }
 	};
 
 	BEGIN_RANGED_SPELL_ACTION(CastDeathGripAction, "death grip")
@@ -73,6 +75,8 @@ namespace ai
 	};
 	//debuff
 	BEGIN_MELEE_DEBUFF_ACTION(CastPestilenceAction, "pestilence")
+        bool isUseful() override;
+        ActionThreatType getThreatType() override { return ActionThreatType::ACTION_THREAT_AOE; }
 	END_SPELL_ACTION()
 
 	//debuff
@@ -81,6 +85,7 @@ namespace ai
 
 	//debuff it
 	BEGIN_RANGED_DEBUFF_ACTION(CastIcyTouchAction, "icy touch")
+        bool isUseful() override { return CastSpellAction::isUseful() && !ai->HasAura("frost fever", GetTarget(), false, true); }
 	END_SPELL_ACTION()
 
 
@@ -88,10 +93,14 @@ namespace ai
 	{
 	public:
 		CastIcyTouchOnAttackerAction(PlayerbotAI* ai) : CastRangedDebuffSpellOnAttackerAction(ai, "icy touch") {}
+        std::string GetTargetName() override { return "attacker without my aura"; }
+        std::string GetTargetQualifier() override { return "frost fever"; }
+        bool isUseful() override { return CastSpellAction::isUseful() && !ai->HasAura("frost fever", GetTarget(), false, true); }
 	};
 
 	//debuff ps
 	BEGIN_MELEE_DEBUFF_ACTION(CastPlagueStrikeAction, "plague strike")
+        bool isUseful() override { return CastSpellAction::isUseful() && !ai->HasAura("blood plague", GetTarget(), false, true); }
 	END_SPELL_ACTION()
 
 
@@ -99,6 +108,9 @@ namespace ai
 	{
 	public:
 		CastPlagueStrikeOnAttackerAction(PlayerbotAI* ai) : CastMeleeDebuffSpellOnAttackerAction(ai, "plague strike") {}
+        std::string GetTargetName() override { return "attacker without my aura"; }
+        std::string GetTargetQualifier() override { return "blood plague"; }
+        bool isUseful() override { return CastSpellAction::isUseful() && !ai->HasAura("blood plague", GetTarget(), false, true); }
 	};
 
 	//debuff
@@ -117,32 +129,39 @@ namespace ai
 		CastUnholyBlightAction(PlayerbotAI* ai) : CastBuffSpellAction(ai, "unholy blight") {}
 	};
 
-	class CastSummonGargoyleAction : public CastBuffSpellAction
+    class CastSummonGargoyleAction : public CastSpellAction
 	{
 	public:
-		CastSummonGargoyleAction(PlayerbotAI* ai) : CastBuffSpellAction(ai, "summon gargoyle") {}
+        CastSummonGargoyleAction(PlayerbotAI* ai) : CastSpellAction(ai, "summon gargoyle") {}
+        bool isUseful() override
+        {
+#ifdef MANGOSBOT_TWO
+            return ai->IsStateActive(BotState::BOT_STATE_COMBAT) && ai->HasStrategy("boost", BotState::BOT_STATE_COMBAT) && MeleeCombatTarget(ai, GetTarget()) && bot->GetPower(POWER_RUNIC_POWER) >= 600 && CastSpellAction::isUseful();
+#else
+            return false;
+#endif
+        }
 	};
 
 	class CastGhoulFrenzyAction : public CastBuffSpellAction
 	{
 	public:
 		CastGhoulFrenzyAction(PlayerbotAI* ai) : CastBuffSpellAction(ai, "ghoul frenzy") {}
+        std::string GetTargetName() override { return "pet target"; }
 	};
 
 	BEGIN_MELEE_SPELL_ACTION(CastCorpseExplosionAction, "corpse explosion")
 	END_SPELL_ACTION()
 
-	BEGIN_MELEE_SPELL_ACTION(CastAntiMagicShellAction, "anti magic shell")
-	END_SPELL_ACTION()
+    BUFF_ACTION(CastAntiMagicShellAction, "anti-magic shell");
 
 
-	BEGIN_MELEE_SPELL_ACTION(CastAntiMagicZoneAction, "anti magic zone")
-	END_SPELL_ACTION()
+    BUFF_ACTION(CastAntiMagicZoneAction, "anti-magic zone");
 
 
-	class CastChainsOfIceAction : public CastSpellAction {
+    class CastChainsOfIceAction : public CastSnareSpellAction {
 	public:
-		CastChainsOfIceAction(PlayerbotAI* ai) : CastSpellAction(ai, "chains of ice") {}
+        CastChainsOfIceAction(PlayerbotAI* ai) : CastSnareSpellAction(ai, "chains of ice") {}
 	};
 
 	class CastHungeringColdAction : public CastMeleeSpellAction {
@@ -177,12 +196,12 @@ namespace ai
 
 	class CastScourgeStrikeAction : public CastMeleeSpellAction {
 	public:
-		CastScourgeStrikeAction(PlayerbotAI* ai) : CastMeleeSpellAction(ai, "scorgue strike") {}
+        CastScourgeStrikeAction(PlayerbotAI* ai) : CastMeleeSpellAction(ai, "scourge strike") {}
 	};
 
 	class CastDeathCoilAction : public CastSpellAction {
 	public:
-		CastDeathCoilAction(PlayerbotAI* ai) : CastSpellAction(ai, "death coill") {}
+        CastDeathCoilAction(PlayerbotAI* ai) : CastSpellAction(ai, "death coil") {}
 	};
 
 	class CastBloodBoilAction : public CastBuffSpellAction {
@@ -225,10 +244,18 @@ namespace ai
 		CastDeathRuneMasteryAction(PlayerbotAI* ai) : CastBuffSpellAction(ai, "death rune mastery") {}
 	};
 
-	class CastDancingWeaponAction : public CastBuffSpellAction
+    class CastDancingWeaponAction : public CastSpellAction
 	{
 	public:
-		CastDancingWeaponAction(PlayerbotAI* ai) : CastBuffSpellAction(ai, "dancing weapon") {}
+        CastDancingWeaponAction(PlayerbotAI* ai) : CastSpellAction(ai, "dancing rune weapon") {}
+        bool isUseful() override
+        {
+#ifdef MANGOSBOT_TWO
+            return ai->HasStrategy("boost", BotState::BOT_STATE_COMBAT) && MeleeOpportunity(ai) && bot->GetPower(POWER_RUNIC_POWER) >= 600 && CastSpellAction::isUseful();
+#else
+            return false;
+#endif
+        }
 	};
 
 	class CastEmpowerRuneWeaponAction : public CastBuffSpellAction
@@ -267,6 +294,7 @@ namespace ai
 	{
 	public:
 		CastUnbreakableArmorAction(PlayerbotAI* ai) : CastBuffSpellAction(ai, "unbreakable armor") {}
+        bool isUseful() override { return MeleeOpportunity(ai) && (ai->HasStrategy("boost", BotState::BOT_STATE_COMBAT) || AI_VALUE2(uint8, "health", "self target") < 50) && CastBuffSpellAction::isUseful(); }
 	};
 
 	class CastVampiricBloodAction : public CastBuffSpellAction
@@ -280,10 +308,16 @@ namespace ai
 		CastMindFreezeAction(PlayerbotAI* ai) : CastMeleeSpellAction(ai, "mind freeze") {}
 	};
 
-	class CastStrangulateAction : public CastMeleeSpellAction {
+    class CastStrangulateAction : public CastSpellAction {
 	public:
-		CastStrangulateAction(PlayerbotAI* ai) : CastMeleeSpellAction(ai, "strangulate") {}
+        CastStrangulateAction(PlayerbotAI* ai) : CastSpellAction(ai, "strangulate") {}
 	};
+
+    class CastStrangulateOnEnemyHealerAction : public CastSpellOnEnemyHealerAction
+    {
+    public:
+        CastStrangulateOnEnemyHealerAction(PlayerbotAI* ai) : CastSpellOnEnemyHealerAction(ai, "strangulate") {}
+    };
 
     class CastMindFreezeOnEnemyHealerAction : public CastSpellOnEnemyHealerAction
     {
@@ -291,14 +325,14 @@ namespace ai
 		CastMindFreezeOnEnemyHealerAction(PlayerbotAI* ai) : CastSpellOnEnemyHealerAction(ai, "mind freeze") {}
     };
 
-	class CastRuneTapAction : public CastMeleeSpellAction {
+    class CastRuneTapAction : public CastHealingSpellAction {
 	public:
-		CastRuneTapAction(PlayerbotAI* ai) : CastMeleeSpellAction(ai, "rune tap") {}
+        CastRuneTapAction(PlayerbotAI* ai) : CastHealingSpellAction(ai, "rune tap") {}
 
 	};
-	class CastBloodTapAction : public CastMeleeSpellAction {
+    class CastBloodTapAction : public CastBuffSpellAction {
 	public:
-		CastBloodTapAction(PlayerbotAI* ai) : CastMeleeSpellAction(ai, "blood tap") {}
+        CastBloodTapAction(PlayerbotAI* ai) : CastBuffSpellAction(ai, "blood tap") {}
 	};
 
 	const std::vector<uint32> RUNEFORGES = { 190557, 191746, 191747, 191748, 191757, 191758 };

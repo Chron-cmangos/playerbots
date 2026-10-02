@@ -29,7 +29,7 @@ private:
 
     ACTION_NODE_A(devastate, "devastate", "sunder armor");
 
-    ACTION_NODE_A(last_stand, "last stand", "intimidating shout");
+    ACTION_NODE_A(last_stand, "last stand", "shield wall");
 
     ACTION_NODE_A(heroic_throw_on_snare_target, "heroic throw on snare target", "taunt on snare target");
 
@@ -629,7 +629,7 @@ void ProtectionWarriorAoeStrategy::InitCombatTriggers(std::list<TriggerNode*>& t
     WarriorAoeStrategy::InitCombatTriggers(triggers);
 
     triggers.push_back(new TriggerNode(
-        "melee medium aoe",
+        "melee light aoe",
         NextAction::array(0, new NextAction("thunder clap threat", ACTION_HIGH + 7), NULL)));
 
     triggers.push_back(new TriggerNode(
@@ -888,7 +888,7 @@ void ProtectionWarriorStrategy::InitCombatTriggers(std::list<TriggerNode*>& trig
 
     triggers.push_back(new TriggerNode(
         "lose aggro",
-        NextAction::array(0, new NextAction("heroic throw taunt", ACTION_PASSTROUGH), NULL)));
+        NextAction::array(0, new NextAction("taunt", ACTION_PASSTROUGH), NULL)));
 
     triggers.push_back(new TriggerNode(
         "spell reflection",
@@ -1027,7 +1027,7 @@ void ProtectionWarriorAoeStrategy::InitCombatTriggers(std::list<TriggerNode*>& t
         NextAction::array(0, new NextAction("challenging shout", ACTION_HIGH + 1), NULL)));
     
     triggers.push_back(new TriggerNode(
-        "melee medium aoe",
+        "melee light aoe",
         NextAction::array(0, new NextAction("thunder clap threat", ACTION_HIGH + 7), NULL)));
 
     /*triggers.push_back(new TriggerNode(

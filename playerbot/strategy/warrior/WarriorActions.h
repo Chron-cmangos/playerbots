@@ -1,12 +1,23 @@
+#include "playerbot/strategy/actions/MeleeAbilityActions.h"
 #pragma once
 #include "playerbot/strategy/actions/GenericActions.h"
 
 namespace ai
 {
+#ifdef MANGOSBOT_TWO
+    class CastVigilanceAction : public CastBuffSpellAction
+    {
+    public:
+        CastVigilanceAction(PlayerbotAI* ai) : CastBuffSpellAction(ai, "vigilance") {}
+        Unit* GetTarget() override;
+        bool isUseful() override;
+    };
+#endif
+
     // stances
-    BUFF_ACTION(CastBattleStanceAction, "battle stance");
-    BUFF_ACTION(CastDefensiveStanceAction, "defensive stance");
-    BUFF_ACTION(CastBerserkerStanceAction, "berserker stance");
+    BUFF_ACTION_U(CastBattleStanceAction, "battle stance", bot->GetShapeshiftForm() != FORM_BATTLESTANCE && CastBuffSpellAction::isUseful());
+    BUFF_ACTION_U(CastDefensiveStanceAction, "defensive stance", bot->GetShapeshiftForm() != FORM_DEFENSIVESTANCE && CastBuffSpellAction::isUseful());
+    BUFF_ACTION_U(CastBerserkerStanceAction, "berserker stance", bot->GetShapeshiftForm() != FORM_BERSERKERSTANCE && CastBuffSpellAction::isUseful());
 
     // shouts
     MELEE_ACTION_U(CastBattleShoutTauntAction, "battle shout", CastSpellAction::isUseful()); // useful to rebuff
@@ -22,7 +33,12 @@ namespace ai
     MELEE_DEBUFF_ACTION(CastRendAction, "rend");
     MELEE_DEBUFF_ENEMY_ACTION(CastRendOnAttackerAction, "rend");
     MELEE_DEBUFF_ACTION_R(CastThunderClapAction, "thunder clap", 8.0f);
-    SPELL_ACTION(CastThunderClapThreatAction, "thunder clap");
+    class CastThunderClapThreatAction : public CastSpellAction
+    {
+    public:
+        CastThunderClapThreatAction(PlayerbotAI* ai) : CastSpellAction(ai, "thunder clap") {}
+        ActionThreatType getThreatType() override { return ActionThreatType::ACTION_THREAT_AOE; }
+    };
     SNARE_ACTION(CastThunderClapSnareAction, "thunder clap");
     SNARE_ACTION(CastHamstringAction, "hamstring");
     MELEE_ACTION(CastOverpowerAction, "overpower");
@@ -35,19 +51,38 @@ namespace ai
     
     // arms talents
     MELEE_ACTION(CastMortalStrikeAction, "mortal strike");
-    BUFF_ACTION(CastSweepingStrikesAction, "sweeping strikes");
+    BUFF_ACTION_U(CastSweepingStrikesAction, "sweeping strikes", CastBuffSpellAction::isUseful() && MeleeOpportunity(ai) && SafeMeleeTargetCount(ai, 5.0f) >= 2);
     // arms talents 3.3.5
-    BUFF_ACTION(CastBladestormAction, "bladestorm");
+    class CastBladestormAction : public CastBuffSpellAction
+    {
+    public:
+        CastBladestormAction(PlayerbotAI* ai) : CastBuffSpellAction(ai, "bladestorm") {}
+        ActionThreatType getThreatType() override { return ActionThreatType::ACTION_THREAT_AOE; }
+    };
 
     // fury
-    MELEE_ACTION(CastCleaveAction, "cleave");
+    class CastCleaveAction : public CastMeleeSpellAction
+    {
+    public:
+        CastCleaveAction(PlayerbotAI* ai) : CastMeleeSpellAction(ai, "cleave") {}
+        ActionThreatType getThreatType() override { return ActionThreatType::ACTION_THREAT_AOE; }
+        bool isUseful() override { return CastMeleeSpellAction::isUseful() && SafeMeleeTargetCount(ai, 5.0f) >= 2; }
+    };
     MELEE_ACTION(CastExecuteAction, "execute");
     REACH_ACTION(CastInterceptAction, "intercept", 8.0f);
     ENEMY_HEALER_ACTION(CastInterceptOnEnemyHealerAction, "intercept");
     SNARE_ACTION(CastInterceptOnSnareTargetAction, "intercept");
     MELEE_ACTION(CastSlamAction, "slam");
     BUFF_ACTION(CastBerserkerRageAction, "berserker rage");
-    MELEE_ACTION(CastWhirlwindAction, "whirlwind");
+    class CastWhirlwindAction : public CastSafeMeleeAreaAction
+    {
+    public:
+        CastWhirlwindAction(PlayerbotAI* ai) : CastSafeMeleeAreaAction(ai, "whirlwind", 8.0f) { range = radius; }
+
+    protected:
+        // Validate the hostile victim; native spell targets still centre Whirlwind on the caster.
+        std::string GetTargetName() override { return "current target"; }
+    };
     MELEE_ACTION(CastPummelAction, "pummel");
     ENEMY_HEALER_ACTION(CastPummelOnEnemyHealerAction, "pummel");
     BUFF_ACTION(CastRecklessnessAction, "recklessness");
@@ -55,7 +90,24 @@ namespace ai
     MELEE_ACTION(CastVictoryRushAction, "victory rush");
     // fury 3.3.5
     BUFF_ACTION(CastEnragedRegenerationAction, "enraged regeneration");
-    BUFF_ACTION(CastHeroicFuryAction, "heroic fury");
+    class CastHeroicFuryAction : public CastBuffSpellAction
+    {
+    public:
+        CastHeroicFuryAction(PlayerbotAI* ai) : CastBuffSpellAction(ai, "heroic fury") {}
+        bool isUseful() override
+        {
+#ifdef MANGOSBOT_TWO
+            if (!CastBuffSpellAction::isUseful()) return false;
+            if (bot->HasAuraType(SPELL_AURA_MOD_ROOT)) return true;
+            Unit* target = ai->GetUnit(AI_VALUE(ObjectGuid, "current target"));
+            const uint32 intercept = AI_VALUE2(uint32, "spell id", "intercept");
+            return MeleeCombatTarget(ai, target) && intercept && !bot->IsSpellReady(intercept) &&
+                bot->GetDistance(target) >= 8.0f && bot->GetDistance(target) <= 25.0f && bot->IsWithinLOSInMap(target);
+#else
+            return false;
+#endif
+        }
+    };
 
     // fury talents
     BUFF_ACTION(CastDeathWishAction, "death wish");
@@ -65,14 +117,14 @@ namespace ai
     BUFF_ACTION(CastRampageAction, "rampage");
 
     // protection
-    SPELL_ACTION_U(CastTauntAction, "taunt", GetTarget() && GetTarget()->GetVictim() && GetTarget()->GetVictim() != bot);
+    SPELL_ACTION_U(CastTauntAction, "taunt", CastSpellAction::isUseful() && GetTarget() && GetTarget()->GetVictim() && GetTarget()->GetVictim() != bot);
     SNARE_ACTION(CastTauntOnSnareTargetAction, "taunt");
     BUFF_ACTION(CastBloodrageAction, "bloodrage");
     MELEE_ACTION(CastShieldBashAction, "shield bash");
     ENEMY_HEALER_ACTION(CastShieldBashOnEnemyHealerAction, "shield bash");
     MELEE_ACTION(CastRevengeAction, "revenge");
     BUFF_ACTION(CastShieldBlockAction, "shield block");
-    MELEE_DEBUFF_ACTION_U(CastDisarmAction, "disarm", GetTarget() && GetTarget()->IsPlayer() ? !ai->IsRanged((Player*)GetTarget()) : CastMeleeDebuffSpellAction::isUseful());
+    MELEE_DEBUFF_ACTION_U(CastDisarmAction, "disarm", CastMeleeDebuffSpellAction::isUseful() && GetTarget() && (!GetTarget()->IsPlayer() || !ai->IsRanged((Player*)GetTarget())));
     MELEE_DEBUFF_ENEMY_ACTION(CastDisarmOnAttackerAction, "disarm");
     BUFF_ACTION(CastShieldWallAction, "shield wall");
     // protection 2.4.3
@@ -118,6 +170,8 @@ namespace ai
 
         virtual bool isUseful() override
         {
+            if (!CastSpellAction::isUseful()) return false;
+
             Unit* target = GetTarget();
             if (!target)
                 return false;
@@ -130,9 +184,9 @@ namespace ai
                 uint32 mortalStrike = AI_VALUE2(uint32, "spell id", "mortal strike");
                 uint32 shieldSlam = AI_VALUE2(uint32, "spell id", "shield slam");
 
-                if ((bloodThirst && bot->IsSpellReady(bloodThirst)) ||
-                    (mortalStrike && bot->IsSpellReady(mortalStrike)) ||
-                    (shieldSlam && bot->IsSpellReady(shieldSlam)))
+                if ((bloodThirst && ai->CanCastSpell(bloodThirst, target, 0)) ||
+                    (mortalStrike && ai->CanCastSpell(mortalStrike, target, 0)) ||
+                    (shieldSlam && ai->CanCastSpell(shieldSlam, target, 0)))
                 {
                     return false;
                 }
@@ -152,6 +206,8 @@ namespace ai
 
         virtual bool isUseful() override
         {
+            if (!CastSpellAction::isUseful()) return false;
+
             Unit* target = GetTarget();
             if (!target)
                 return false;
@@ -162,7 +218,7 @@ namespace ai
 
             if (shieldSlam)
             {
-                return !bot->IsSpellReady(shieldSlam);
+                return !ai->CanCastSpell(shieldSlam, target, 0);
             }
 
             return true;

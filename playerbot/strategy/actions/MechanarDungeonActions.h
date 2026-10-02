@@ -2,9 +2,29 @@
 #include "DungeonActions.h"
 #include "ChangeStrategyAction.h"
 #include "UseItemAction.h"
+#include "AttackAction.h"
+#include "playerbot/strategy/values/EncounterPositionValue.h"
 
 namespace ai
 {
+    class PathaleonAddsAction : public AttackAction
+    {
+    public:
+        PathaleonAddsAction(PlayerbotAI* ai) : AttackAction(ai, "pathaleon attack adds") {}
+        Unit* GetTarget() override;
+        bool isUseful() override;
+    };
+
+    class MechanarPositionAction : public MovementAction
+    {
+    public:
+        MechanarPositionAction(PlayerbotAI* ai) : MovementAction(ai, "mechanar safe position") {}
+        bool ShouldReactionInterruptCast() const override;
+        bool Execute(Event& event) override;
+        bool isUseful() override;
+        static bool GetPlan(PlayerbotAI* ai, EncounterPosition& plan);
+    };
+
     class MechanarEnableDungeonStrategyAction : public ChangeAllStrategyAction
     {
     public:
@@ -32,6 +52,6 @@ namespace ai
     class RagingFlamesMoveAwayAction : public MoveAwayFromCreature
     {
     public:
-        RagingFlamesMoveAwayAction(PlayerbotAI* ai) : MoveAwayFromCreature(ai, "move away from raging flames", 20481, 21.0f) {}
+        RagingFlamesMoveAwayAction(PlayerbotAI* ai) : MoveAwayFromCreature(ai, "move away from raging flames", 20481, 20.0f, true) {}
     };
 }

@@ -17,6 +17,8 @@ namespace ai
         const time_t& GetPullStartTime() const { return pullStartTime; }
         
         bool CanDoPullAction(Unit* target);
+        bool IsBodyPull() const { return bodyPull; }
+        void SetBodyPull(bool value) { bodyPull = value; }
 
         Unit* GetTarget() const;
         bool HasTarget() const { return GetTarget() != nullptr; }
@@ -31,9 +33,16 @@ namespace ai
         bool IsPullPendingToStart() const { return pendingToStart; }
         bool HasPullStarted() const { return pullStartTime > 0; }
         void OnPullStarted();
+        void OnPullActionIssued();
+        bool HasPullActionIssued() const { return pullActionTime != 0; }
+        time_t GetPullActionTime() const { return pullActionTime; }
+        void RetryPullAction() { pullActionTime = 0; pendingToStart = true; }
+        bool HasSavedPetReactState() const { return petReactStateSaved; }
+        void SetRequester(ObjectGuid guid) { requesterGuid = guid; }
+        ObjectGuid GetRequester() const { return requesterGuid; }
         void OnPullEnded();
         ReactStates GetPetReactState() const { return petReactState; }
-        void SetPetReactState(ReactStates reactState) { petReactState = reactState; }
+        void SetPetReactState(ReactStates reactState) { petReactState = reactState; petReactStateSaved = true; }
 
     private:
         void SetTarget(Unit* target);
@@ -47,7 +56,11 @@ namespace ai
         std::string pullActionName; //shoot
         std::string preActionName;
         bool pendingToStart;
+        bool bodyPull = false;
         time_t pullStartTime;
+        time_t pullActionTime = 0;
+        bool petReactStateSaved = false;
+        ObjectGuid requesterGuid;
         ReactStates petReactState;
     };
 

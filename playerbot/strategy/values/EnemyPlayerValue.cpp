@@ -2,6 +2,8 @@
 #include "playerbot/playerbot.h"
 #include "EnemyPlayerValue.h"
 #include "TargetValue.h"
+#include "PvpValues.h"
+#include "playerbot/strategy/MeleeCombatPolicy.h"
 
 using namespace ai;
 
@@ -40,18 +42,15 @@ std::list<ObjectGuid> EnemyPlayersValue::Calculate()
 
 bool EnemyPlayersValue::IsValid(Unit* target, Player* player)
 {
+    if (!PossibleTargetsValue::IsValid(target, player, true)) return false;
+    if (PlayerbotAI* ai = player->GetPlayerbotAI())
+        if (MeleeCcCheck(ai).Protected(target)) return false;
     if (target)
     {
         // If the target is a player
         Player* enemyPlayer = dynamic_cast<Player*>(target);
         if (enemyPlayer)
         {
-            // If the target is friendly to the player
-            if (sServerFacade.IsFriendlyTo(target, player))
-            {
-                return false;
-            }
-
             // Check that the target is not a mind controlled ally
             if (target->HasAuraType(SPELL_AURA_MOD_CHARM) || target->HasAuraType(SPELL_AURA_MOD_POSSESS))
             {
@@ -59,11 +58,6 @@ bool EnemyPlayersValue::IsValid(Unit* target, Player* player)
                 {
                     return false;
                 }
-            }
-
-            if (!IsReachable(target, player))
-            {
-                return false;
             }
 
             /*
@@ -82,29 +76,6 @@ bool EnemyPlayersValue::IsValid(Unit* target, Player* player)
     }
 
     return false;
-}
-
-bool EnemyPlayersValue::IsReachable(Unit* target, Player* player)
-{
-    // A player standing under the map (or on a ledge with no way up) is close in 2D but can
-    // never be reached, and would otherwise keep the bot in combat with it indefinitely.
-    if (!player || !PlayerbotAI::IsSafe(player, target))
-    {
-        return true;
-    }
-
-    // The path check below decides reachability. This height gate only decides when it is
-    // worth running: normal fights (slopes, stairs, small ledges) stay within a few yards
-    // of height, so skipping them keeps the pathfinder out of the common case. The cases
-    // this targets are far outside it (e.g. a player that fell ~30 yd under the map).
-    // A lower value only costs more path checks, a higher one only misses shallower cases.
-    const float maxHeightWithoutPathCheck = 10.0f;
-    if (std::abs(target->GetPositionZ() - player->GetPositionZ()) <= maxHeightWithoutPathCheck)
-    {
-        return true;
-    }
-
-    return WorldPosition(player).canPathTo(WorldPosition(target), player);
 }
 
 void EnemyPlayersValue::ApplyFilter(std::list<ObjectGuid>& targets, bool getOne)
@@ -140,6 +111,12 @@ ObjectGuid EnemyPlayerValue::Calculate()
         return bot->duel->opponent->GetObjectGuid();
     }
 
+    if (ActualBattlegroundType(bot) == BATTLEGROUND_WS && !ai->HasRealPlayerMaster())
+    {
+        Unit* warsongTarget = SelectWarsongCombatTarget(ai);
+        return warsongTarget ? warsongTarget->GetObjectGuid() : ObjectGuid();
+    }
+
     Unit* bestEnemyPlayer = nullptr;
     std::list<ObjectGuid> enemyPlayers = AI_VALUE(std::list<ObjectGuid>, "enemy player targets");
     if (!enemyPlayers.empty())
@@ -148,19 +125,12 @@ ObjectGuid EnemyPlayerValue::Calculate()
         uint32 bestEnemyPlayerHealth = std::numeric_limits<uint32>::max();
         float bestEnemyPlayerDistance = std::numeric_limits<float>::max();
       
-        // Use the first enemy player as a base
-        Unit* firstTarget = ai->GetUnit(enemyPlayers.front());
-        if (firstTarget)
-        {
-            bestEnemyPlayerDistance = firstTarget->GetDistance(bot, true);
-            bestEnemyPlayerHealth = firstTarget->GetHealth();
-            bestEnemyPlayer = firstTarget;
-        }
+        // Score only freshly validated candidates, including the first cached GUID.
 
         for (const ObjectGuid& targetGuid : enemyPlayers)
         {
             Unit* target = ai->GetUnit(targetGuid);
-            if (target)
+            if (EnemyPlayersValue::IsValid(target, bot))
             {
                 // Prioritize an enemy player if it has a battleground flag
                 if ((bot->GetTeam() == HORDE && target->HasAura(23333)) ||
@@ -173,7 +143,7 @@ ObjectGuid EnemyPlayerValue::Calculate()
                 if (isMelee)
                 {
                     // Score best enemy player based on lowest distance
-                    const float distanceToEnemyPlayer = target->GetDistance(bot, true);
+                    const float distanceToEnemyPlayer = target->GetDistance(bot, false);
                     if (distanceToEnemyPlayer < bestEnemyPlayerDistance)
                     {
                         bestEnemyPlayerDistance = distanceToEnemyPlayer;

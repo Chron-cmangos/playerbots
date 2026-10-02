@@ -8,6 +8,8 @@ using namespace ai;
 
 bool LfgJoinAction::Execute(Event& event)
 {
+    if (!isUseful())
+        return false;
     return JoinLFG();
 }
 
@@ -1190,6 +1192,9 @@ bool LfgJoinAction::isUseful()
     if (bot->IsDead())
         return false;
 
+    if (!bot->IsInWorld() || bot->IsInCombat())
+        return false;
+
     if (!sRandomPlayerbotMgr.IsFreeBot(bot))
         return false;
 
@@ -1214,6 +1219,16 @@ bool LfgJoinAction::isUseful()
         return false;
 #endif
 #ifdef MANGOSBOT_ONE
+    // Mirror JoinLFG's stable eligibility rules before scheduling the action.
+    GrouperType const grouperType = ai->GetGrouperType();
+    Group* group = bot->GetGroup();
+    if (grouperType == GrouperType::SOLO ||
+        (grouperType == GrouperType::MEMBER && group))
+        return false;
+    if (grouperType >= GrouperType::LEADER_2 && group &&
+        (group->IsFull() || ai->GetGroupMaster() != bot ||
+         group->GetMembersCount() >= uint8(grouperType)))
+        return false;
     /* todo: Fix with new system
     bool isLFG = false;
     bool isLFM = false;

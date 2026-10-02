@@ -1,6 +1,7 @@
 
 #include "playerbot/playerbot.h"
 #include "UseItemAction.h"
+#include "EncounterItemUse.h"
 
 #include "playerbot/PlayerbotAIConfig.h"
 #include "Database/DBCStore.h"
@@ -196,8 +197,10 @@ bool RequiresItemToUse(const ItemPrototype* itemProto, PlayerbotAI* ai, Player* 
     if (itemExceptions.find(itemProto->ItemId) != itemExceptions.end())
         return false;
 
-    // Required items                                  Hearthstone, Scourgestone
-    const std::unordered_set<uint32> itemsRequired = { 6948, 40582 };
+    // Encounter objectives must retain native ownership and charge/item
+    // consumption even when ordinary consumables use the item cheat.
+    // Hearthstone, Scourgestone, Hourglass Sand, Tears, Tainted Core, Spine.
+    static const std::unordered_set<uint32> itemsRequired = { 6948, 40582, 19183, 24494, 31088, 32408 };
     if (itemsRequired.find(itemProto->ItemId) != itemsRequired.end())
         return true;
 
@@ -491,6 +494,14 @@ bool UseAction::UseItemInternal(Player* requester, uint32 itemId, Unit* unit, Ga
         return false;
     }
 
+    if (IsNativeEncounterItem(itemId))
+    {
+        if (item || !UseNativeEncounterItem(bot, itemUsed, unit, gameObject)) return false;
+        RESET_AI_VALUE2(uint32, "item count", itemId);
+        SetDuration(sPlayerbotAIConfig.globalCoolDown);
+        return true;
+    }
+
     Unit* unitTarget = nullptr;
     Item* itemTarget = nullptr;
     GameObject* gameObjectTarget = nullptr;
@@ -775,6 +786,12 @@ bool UseAction::UseGameObject(Player* requester, Event& event, GameObject* gameO
     if (gameObject == nullptr)
     {
         ai->TellPlayerNoFacing(requester, "Invalid game object", PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, false);
+        return false;
+    }
+
+    if (gameObject->GetGoType() == GAMEOBJECT_TYPE_GENERIC)
+    {
+        ai->TellPlayerNoFacing(requester, "That object cannot be interacted with", PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, false);
         return false;
     }
 
@@ -1159,13 +1176,15 @@ bool UseItemIdAction::isPossible()
         return false;
 
     ItemPrototype const* proto = sObjectMgr.GetItemPrototype(itemId);
-    if (!proto)
+    // Match the native eligibility check performed by UseItemInternal. In
+    // particular, an underlevel rune must not hide a usable potion fallback.
+    if (!proto || bot->CanUseItem(proto) != EQUIP_ERR_OK)
         return false;
 
     if (HasItemCooldown(itemId))
         return false;
 
-        if (!ai->HasCheat(BotCheatMask::item) && !bot->HasItemCount(itemId, 1))
+    if (!ai->HasCheat(BotCheatMask::item) && !bot->HasItemCount(itemId, 1))
         return false;
 
 

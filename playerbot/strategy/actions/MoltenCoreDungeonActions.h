@@ -2,9 +2,43 @@
 #include "DungeonActions.h"
 #include "ChangeStrategyAction.h"
 #include "UseItemAction.h"
+#include "AttackAction.h"
+#include "playerbot/strategy/values/EncounterPositionValue.h"
 
 namespace ai
 {
+    // Native spell checks remain authoritative for learned ranks, range, mana,
+    // cooldowns, immunities and crowd control. No leader command is required.
+    class MoltenCoreSupportAction : public Action
+    {
+    public:
+        MoltenCoreSupportAction(PlayerbotAI* ai) : Action(ai, "molten core support") {}
+        bool isUseful() override;
+        bool Execute(Event& event) override;
+    private:
+        bool Select(std::string& spell, Unit*& target);
+    };
+
+    Unit* MoltenCoreAssignedTankTarget(PlayerbotAI* ai);
+
+    class MoltenCorePriorityTargetAction : public AttackAction
+    {
+    public:
+        MoltenCorePriorityTargetAction(PlayerbotAI* ai) : AttackAction(ai, "molten core priority target") {}
+        Unit* GetTarget() override;
+        bool isUseful() override;
+    };
+
+    class MoltenCorePositionAction : public MovementAction
+    {
+    public:
+        MoltenCorePositionAction(PlayerbotAI* ai) : MovementAction(ai, "molten core safe position") {}
+        bool Execute(Event& event) override;
+        bool isUseful() override;
+        bool ShouldReactionInterruptCast() const override;
+        static bool GetPlan(PlayerbotAI* ai, EncounterPosition& plan);
+    };
+
     class MoltenCoreEnableDungeonStrategyAction : public ChangeAllStrategyAction
     {
     public:

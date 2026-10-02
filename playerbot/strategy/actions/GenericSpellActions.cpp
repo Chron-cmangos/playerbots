@@ -2,6 +2,10 @@
 #include "playerbot/playerbot.h"
 #include "GenericActions.h"
 #include "UseItemAction.h"
+#include "playerbot/CombatDiagnostics.h"
+#include "EncounterSpellPolicy.h"
+#include "playerbot/strategy/Trigger.h"
+#include "playerbot/strategy/warrior/WarriorCombatPolicy.h"
 
 using namespace ai;
 
@@ -18,9 +22,43 @@ CastSpellAction::CastSpellAction(PlayerbotAI* ai, std::string spell)
     }
 }
 
+ActionThreatType CastSpellAction::getThreatType()
+{
+    return CasterSpellArea(GetSpellName()) == CasterArea::None ? ActionThreatType::ACTION_THREAT_SINGLE : ActionThreatType::ACTION_THREAT_AOE;
+}
+
+bool CastSpellAction::HasMovementEffect()
+{
+    RefreshSpellId();
+    const SpellEntry* spell = sServerFacade.LookupSpellInfo(spellId);
+    if (!spell) return false;
+    for (unsigned effect = 0; effect < MAX_EFFECT_INDEX; ++effect)
+        switch (spell->Effect[effect])
+        {
+            case SPELL_EFFECT_CHARGE:
+            case SPELL_EFFECT_LEAP:
+            case SPELL_EFFECT_TELEPORT_UNITS:
+            case SPELL_EFFECT_TELEPORT_UNITS_FACE_CASTER:
+#ifndef MANGOSBOT_ZERO
+            case SPELL_EFFECT_LEAP_BACK:
+            case SPELL_EFFECT_CHARGE_DEST:
+#endif
+#ifdef MANGOSBOT_TWO
+            case SPELL_EFFECT_JUMP:
+            case SPELL_EFFECT_JUMP_DEST:
+#endif
+                return true;
+            default: break;
+        }
+    return false;
+}
+
 bool CastSpellAction::Execute(Event& event)
 {
+    RefreshSpellId();
+    if (!CasterSpellAreaSafe(ai, GetSpellName(), GetTarget()) || !CasterHealthCostSafe(ai, GetSpellName())) return false;
     bool executed = false;
+    uint32 observedSpellId = spellId;
     uint32 spellDuration = sPlayerbotAIConfig.globalCoolDown;
     if (spellName == "conjure food" || spellName == "conjure water")
     {
@@ -29,8 +67,13 @@ bool CastSpellAction::Execute(Event& event)
         {
             uint32 spellId = itr->first;
 
+            // Removed/disabled ranks remain in the spell map until save. Use
+            // the native learned-spell predicate before selecting a conjure rank.
+            if (!bot->HasSpell(spellId))
+                continue;
+
             const SpellEntry* pSpellInfo = sServerFacade.LookupSpellInfo(spellId);
-            if (!pSpellInfo)
+            if (!pSpellInfo || IsPassiveSpell(pSpellInfo))
                 continue;
 
             std::string namepart = pSpellInfo->SpellName[0];
@@ -54,10 +97,31 @@ bool CastSpellAction::Execute(Event& event)
                 castId = pSpellInfo->Id;
         }
 
+        if (!castId || !sServerFacade.LookupSpellInfo(castId))
+            return false;
+
         executed = ai->CastSpell(castId, bot, nullptr, false, &spellDuration);
+        observedSpellId = castId;
     }
     else
     {
+        // Keep invalid and expansion-incompatible actions out of the core spell
+        // path. Dynamic mount selection is still resolved by the normal value.
+        if (!spellId || !sServerFacade.LookupSpellInfo(spellId))
+            return false;
+        if (IsPassiveSpell(sServerFacade.LookupSpellInfo(spellId)))
+            return false;
+
+        // The native class-call aura can arrive after action selection.
+        if (ShouldAvoidCorruptedHealing(bot, sServerFacade.LookupSpellInfo(spellId), GetTarget()))
+            return false;
+        if (ShouldAvoidEncounterDispel(ai, sServerFacade.LookupSpellInfo(spellId), GetTarget()))
+            return false;
+        if (ShouldAvoidEncounterTaunt(ai, sServerFacade.LookupSpellInfo(spellId), GetTarget()))
+            return false;
+        if (ShouldAvoidEncounterOffense(bot, bot, sServerFacade.LookupSpellInfo(spellId), GetTarget()))
+            return false;
+
         if (GetTargetName() == "current target" && (!bot->GetCurrentSpell(CURRENT_MELEE_SPELL) && !bot->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL)))
         {
             if (bot->getClass() == CLASS_HUNTER && spellName != "auto shot" && sServerFacade.GetDistance2d(bot, GetTarget()) > 5.0f)
@@ -66,6 +130,9 @@ bool CastSpellAction::Execute(Event& event)
 
         executed = ai->CastSpell(spellName, GetTarget(), nullptr, false, &spellDuration);
     }
+
+    if (CombatDiagnostics::Select(ai))
+        CombatDiagnostics::Record(ai, getName(), event.getSource(), "cast_wrapper_result", executed ? 1 : 0, observedSpellId);
 
     if (executed)
     {
@@ -78,8 +145,38 @@ bool CastSpellAction::Execute(Event& event)
     return executed;
 }
 
+Unit* TankThreatTransferAction::GetTarget()
+{
+    if (!bot->GetGroup()) return nullptr;
+    Unit* enemy = ai->GetUnit(ai->GetAiObjectContext()->GetValue<ObjectGuid>("current target")->Get());
+    Unit* tank = enemy && enemy->IsInWorld() && enemy->GetMap() == bot->GetMap() ? enemy->GetVictim() : nullptr;
+    if (tank && tank->IsPlayer() && tank != bot && tank->IsAlive() && tank->IsInWorld() &&
+        tank->GetMap() == bot->GetMap() && static_cast<Player*>(tank)->GetGroup() == bot->GetGroup() && ai->IsTank(static_cast<Player*>(tank)))
+        return tank;
+    return BuffOnTankAction::GetTarget();
+}
+
+bool TankThreatTransferAction::isUseful()
+{
+    // Keep manual cast commands separate. Automatic threat support belongs on
+    // a living group tank, not an arbitrary healer or the transferring bot.
+    if (!bot->IsInWorld() || !bot->GetGroup() || bot->HasCharmer() || ai->IsTank(bot) ||
+        ai->HasAura(GetSpellName(), bot)) return false;
+    Unit* target = GetTarget();
+    if (!target || target == bot || !target->IsPlayer() || !target->IsInWorld() ||
+        !target->IsAlive() || target->HasCharmer() || target->GetMap() != bot->GetMap() ||
+        static_cast<Player*>(target)->GetGroup() != bot->GetGroup() || !ai->IsTank(static_cast<Player*>(target))) return false;
+    return CastSpellAction::isUseful();
+}
+
 bool CastSpellAction::isPossible()
 {
+    RefreshSpellId();
+    if (!spellId || !sServerFacade.LookupSpellInfo(spellId))
+        return false;
+    if (IsPassiveSpell(sServerFacade.LookupSpellInfo(spellId)))
+        return false;
+
     if (spellName == "mount")
     {
         if (!bot->IsMounted() && !bot->IsInCombat())
@@ -96,6 +193,16 @@ bool CastSpellAction::isPossible()
     Unit* spellTarget = GetTarget();
     if (!spellTarget)
         return false;
+
+    // Native hunter ranged checks include this target's reach and the
+    // expansion's minimum range. Do not reject them with a caster-only estimate.
+    const SpellEntry* nativeSpell = sServerFacade.LookupSpellInfo(spellId);
+    if (bot->getClass() == CLASS_HUNTER && nativeSpell->HasAttribute(SPELL_ATTR_USES_RANGED_SLOT))
+        return ai->CanCastSpell(spellName, spellTarget, 0);
+
+    // Self-centred caster bursts use native range, not melee weapon reach.
+    if (CasterSpellArea(GetSpellName()) == CasterArea::Self)
+        return ai->CanCastSpell(spellName, spellTarget, 0);
 
     bool canReach = false;
     if (spellTarget == bot)
@@ -139,8 +246,30 @@ bool CastSpellAction::isPossible()
 	return ai->CanCastSpell(spellName, spellTarget, 0, nullptr, true);
 }
 
+bool CastSpellAction::ShouldTryAlternativesWhenUseless()
+{
+    // Vehicle abilities have their own capability checks and spellbook.
+    if (spellIdContext != "spell id")
+        return false;
+    RefreshSpellId();
+    const SpellEntry* spell = sServerFacade.LookupSpellInfo(spellId);
+    return !spellId || !spell || !ai->HasSpell(spellId) || IsPassiveSpell(spell);
+}
+
 bool CastSpellAction::isUseful()
 {
+    RefreshSpellId();
+    // Expansion-specific strategies can expose actions for spells this bot has
+    // not learned (or that do not exist in the current client data). Reject
+    // those static capability misses before target/range/cast evaluation. The
+    // cached HasSpell path is invalidated by spellbook/talent changes.
+    if (!spellId || !sServerFacade.LookupSpellInfo(spellId) || !ai->HasSpell(spellId))
+        return false;
+    // A learned talent/proc can appear in the spellbook without being an
+    // activated ability. Its effects are applied by the core, not recast by AI.
+    if (IsPassiveSpell(sServerFacade.LookupSpellInfo(spellId)))
+        return false;
+
     if (ai->IsInVehicle() && !ai->IsInVehicle(false, false, true))
         return false;
 
@@ -151,10 +280,28 @@ bool CastSpellAction::isUseful()
     if (!spellTarget)
         return false;
 
-    if (!spellTarget->IsInWorld() || spellTarget->GetMapId() != bot->GetMapId())
+    if (!bot->IsInWorld() || bot->IsBeingTeleported() || !spellTarget->IsInWorld() || !bot->IsInMap(spellTarget))
         return false;
 
+    if (bot->getClass() == CLASS_HUNTER && spellTarget != bot &&
+        getThreatType() != ActionThreatType::ACTION_THREAT_NONE &&
+        spellTarget->HasBreakableByDamageCrowdControlAura() && bot->CanAttack(spellTarget)) return false;
+
+    if (!CasterSpellAreaSafe(ai, GetSpellName(), spellTarget) || !CasterHealthCostSafe(ai, GetSpellName())) return false;
+
+    if ((bot->getClass() == CLASS_MAGE || bot->getClass() == CLASS_WARLOCK || bot->getClass() == CLASS_PRIEST ||
+         bot->getClass() == CLASS_DRUID || bot->getClass() == CLASS_SHAMAN) && spellTarget != bot &&
+        CasterDamageSpell(sServerFacade.LookupSpellInfo(spellId)) && MeleeCcCheck(ai).Protected(spellTarget)) return false;
+
     const SpellEntry* pSpellInfo = sServerFacade.LookupSpellInfo(spellId);
+    if (ShouldAvoidCorruptedHealing(bot, pSpellInfo, spellTarget))
+        return false;
+    if (ShouldAvoidEncounterDispel(ai, pSpellInfo, spellTarget))
+        return false;
+    if (ShouldAvoidEncounterTaunt(ai, pSpellInfo, spellTarget))
+        return false;
+    if (ShouldAvoidEncounterOffense(bot, bot, pSpellInfo, spellTarget))
+        return false;
     if (pSpellInfo)
     {
         // check if the damage we'd take from damage shields is too harmful, only for melee spells
@@ -183,8 +330,9 @@ bool CastSpellAction::isUseful()
             }
         }
 
-        // If target is more likely than not to reflect and our spell is reflectable, don't cast
-        if (spellTarget->GetReflectChance(GetSpellSchoolMask(pSpellInfo)) > 50.0f && IsReflectableSpell(pSpellInfo))
+        // At even odds or worse, do not cast a reflectable spell. Use the
+        // native school-specific chance and reflectability, not a boss ID.
+        if (spellTarget->GetReflectChance(GetSpellSchoolMask(pSpellInfo)) >= 50.0f && IsReflectableSpell(pSpellInfo))
             return false;
     }
 
@@ -193,6 +341,10 @@ bool CastSpellAction::isUseful()
 
 NextAction** CastSpellAction::getPrerequisites()
 {
+    NextAction** prerequisites = Action::getPrerequisites();
+    const std::string stance = WarriorStancePrerequisite(ai, sServerFacade.LookupSpellInfo(spellId));
+    if (!stance.empty() && CanPlanWarriorSpell(ai, spellName, GetTarget()))
+        prerequisites = NextAction::merge(NextAction::array(0, new NextAction(stance), nullptr), prerequisites);
     // Set the reach action as the cast spell prerequisite when needed
     const std::string reachAction = GetReachActionName();
     if (!reachAction.empty())
@@ -213,18 +365,19 @@ NextAction** CastSpellAction::getPrerequisites()
             }
 
             const std::string qualifiersStr = Qualified::MultiQualify(qualifiers, "::");
-            return NextAction::merge(NextAction::array(0, new NextAction(reachAction + "::" + qualifiersStr), NULL), Action::getPrerequisites());
+            return NextAction::merge(NextAction::array(0, new NextAction(reachAction + "::" + qualifiersStr), NULL), prerequisites);
         }
     }
 
-    return Action::getPrerequisites();
+    return prerequisites;
 }
 
 void CastSpellAction::SetSpellName(const std::string& name, std::string spellIDContextName /*= "spell id"*/, bool force)
 {
-    if (force || spellName != name)
+    if (force || spellName != name || spellIdContext != spellIDContextName)
     {
         spellName = name;
+        spellIdContext = spellIDContextName;
         spellId = ai->GetAiObjectContext()->GetValue<uint32>(spellIDContextName, name)->Get();
 
         float spellRange;
@@ -233,6 +386,13 @@ void CastSpellAction::SetSpellName(const std::string& name, std::string spellIDC
             range = spellRange;
         }
     }
+}
+
+void CastSpellAction::RefreshSpellId()
+{
+    // Reuse the existing timed spell-ID value. An Action outlives training,
+    // respecs and pet changes; its constructor's ID is not a permanent capability.
+    spellId = ai->GetAiObjectContext()->GetValue<uint32>(spellIdContext, spellName)->Get();
 }
 
 Unit* CastSpellAction::GetTarget()
@@ -244,6 +404,7 @@ Unit* CastSpellAction::GetTarget()
 
 bool CastPetSpellAction::isPossible()
 {
+    RefreshSpellId();
     Unit* spellTarget = GetTarget();
     if (!spellTarget)
         return false;
@@ -305,6 +466,10 @@ bool CastEnchantItemAction::isPossible()
 
 bool CastAoeHealSpellAction::isUseful()
 {
+    RefreshSpellId();
+    Unit* target = GetTarget();
+    if (target && target->GetMaxNegativeAuraModifier(SPELL_AURA_MOD_HEALING_PCT) <= -100 &&
+        !CanPrecastEncounterHeal(bot, target, sServerFacade.LookupSpellInfo(GetSpellID()))) return false;
     return CastSpellAction::isUseful();
 }
 
@@ -315,16 +480,19 @@ bool HealHotPartyMemberAction::isUseful()
 
 bool CastVehicleSpellAction::isPossible()
 {
+    RefreshSpellId();
     return ai->CanCastVehicleSpell(GetSpellID(), GetTarget());
 }
 
 bool CastVehicleSpellAction::isUseful()
 {
+    RefreshSpellId();
     return ai->IsInVehicle(false, true);
 }
 
 bool CastVehicleSpellAction::Execute(Event& event)
 {
+    RefreshSpellId();
     return ai->CastVehicleSpell(GetSpellID(), GetTarget(), speed, needTurn);
 }
 
@@ -367,6 +535,15 @@ bool CastDevourHumanoidAction::isPossible()
         return false;
 
     return CastVehicleSpellAction::isPossible();
+}
+
+bool CastShootAction::isUseful()
+{
+    // The engine checks usefulness before possibility. Resolve the equipped
+    // weapon here so Classic's Shoot Bow/Gun/Crossbow and Throw reach the
+    // learned-spell check instead of being rejected as generic Shoot.
+    UpdateWeaponInfo();
+    return rangedWeapon && !needsAmmo && CastSpellAction::isUseful();
 }
 
 bool CastShootAction::isPossible()
@@ -517,14 +694,25 @@ bool InterruptCurrentSpellAction::isUseful()
 
 bool InterruptCurrentSpellAction::Execute(Event& event)
 {
+    const bool cancelOverheal = event.getSource() == "heal target full health";
+    if (cancelOverheal)
+    {
+        // An action can wait in the queue while health or the active cast changes.
+        Trigger* trigger = ai->GetAiObjectContext()->GetTrigger("heal target full health");
+        if (!trigger || !trigger->IsActive())
+            return false;
+    }
     bool interrupted = false;
     for (int type = CURRENT_MELEE_SPELL; type < CURRENT_CHANNELED_SPELL; type++)
     {
+        if (cancelOverheal && type != CURRENT_GENERIC_SPELL)
+            continue;
         Spell* currentSpell = bot->GetCurrentSpell((CurrentSpellTypes)type);
         if (currentSpell && currentSpell->CanBeInterrupted())
         {
+            const uint32 spellId = currentSpell->m_spellInfo->Id;
             bot->InterruptSpell((CurrentSpellTypes)type);
-            ai->SpellInterrupted(currentSpell->m_spellInfo->Id);
+            ai->SpellInterrupted(spellId);
             interrupted = true;
         }
     }
@@ -562,6 +750,8 @@ Unit* CastSpellTargetAction::GetTarget()
 bool CastSpellTargetAction::IsTargetValid(Unit* target)
 {
     return target &&
+           bot->IsInMap(target) &&
+           sServerFacade.IsFriendlyTo(bot, target) &&
            ai->IsSafe(target) &&
            (bot == target || sServerFacade.GetDistance2d(bot, target) < sPlayerbotAIConfig.sightDistance) &&
            bot->IsInGroup(target) &&

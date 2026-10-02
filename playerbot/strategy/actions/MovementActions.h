@@ -49,7 +49,7 @@ namespace ai
             float maxDist,
             bool isWalking);
 
-        void DispatchMovement(TravelPath movePath, bool generatePath, bool masterWalking);
+        bool DispatchMovement(TravelPath movePath, bool generatePath, bool masterWalking);
 
         Unit* GetMover(Player* bot);
 
@@ -87,6 +87,7 @@ namespace ai
         bool IsValidPosition(const WorldPosition& position, const WorldPosition& visibleFromPosition);
         bool IsHazardNearPosition(const WorldPosition& position, HazardPosition* outHazard = nullptr);
         bool GeneratePathAvoidingHazards(std::vector<WorldPosition>& movePath);
+        bool BuildSafeHazardPath(std::vector<WorldPosition>& path, Unit* mover);
     };
 
     class FleeAction : public MovementAction
@@ -172,7 +173,7 @@ namespace ai
     class JumpAction : public MovementAction, public Qualified
     {
     public:
-        JumpAction(PlayerbotAI* ai) : MovementAction(ai, "jump"), Qualified() {}
+        JumpAction(PlayerbotAI* ai, std::string name = "jump") : MovementAction(ai, name), Qualified() {}
         bool Execute(Event& event) override;
         bool isUseful() override;
 

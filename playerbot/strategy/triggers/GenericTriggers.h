@@ -1,4 +1,5 @@
 #pragma once
+#include "playerbot/strategy/CasterCombatPolicy.h"
 #include "playerbot/strategy/Trigger.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/ServerFacade.h"
@@ -361,6 +362,13 @@ namespace ai
         std::string lowerSpell;
     };
 
+    class TankThreatTransferTrigger : public Trigger
+    {
+    public:
+        TankThreatTransferTrigger(PlayerbotAI* ai) : Trigger(ai, "tank threat transfer", 2) {}
+        bool IsActive() override;
+    };
+
     class BuffOnTankTrigger : public BuffTrigger
     {
     public:
@@ -472,7 +480,7 @@ namespace ai
     class DebuffTrigger : public BuffTrigger
     {
     public:
-        DebuffTrigger(PlayerbotAI* ai, std::string spell, int checkInterval = 1, bool checkIsOwner = false) : BuffTrigger(ai, spell, checkInterval, checkIsOwner) {}
+        DebuffTrigger(PlayerbotAI* ai, std::string spell, int checkInterval = 1, bool checkIsOwner = false) : BuffTrigger(ai, spell, checkInterval, checkIsOwner || CasterPersonalDot(spell)) {}
 
     public:
 		virtual std::string GetTargetName() override { return "current target"; }
@@ -1032,10 +1040,22 @@ namespace ai
 
         virtual bool IsActive() override
         {
-            return bot->HasAuraType(SPELL_AURA_MOD_FEAR);
-            return bot->HasAuraType(SPELL_AURA_MOD_STUN);
-            return bot->HasAuraType(SPELL_AURA_MOD_CHARM);
-            return bot->HasAuraType(SPELL_AURA_MOD_CONFUSE);
+            const uint32 spellId = AI_VALUE2(uint32, "spell id", "will of the forsaken");
+            const SpellEntry* immunity = sServerFacade.LookupSpellInfo(spellId);
+            if (!immunity || !ai->HasSpell(spellId) || !bot->IsSpellReady(spellId))
+                return false;
+
+            // Read the expansion's actual immunity effects, using the core's
+            // aura mechanic masks. Fear/charm/sleep are not the same as all stuns/confusion.
+            uint32 mechanics = 0;
+            for (uint32 effect = 0; effect < MAX_EFFECT_INDEX; ++effect)
+                if (immunity->EffectApplyAuraName[effect] == SPELL_AURA_MECHANIC_IMMUNITY &&
+                    immunity->EffectMiscValue[effect] > 0 && immunity->EffectMiscValue[effect] <= 32)
+                    mechanics |= uint32(1) << (immunity->EffectMiscValue[effect] - 1);
+            for (const auto& entry : bot->GetSpellAuraHolderMap())
+                if (!IsPositiveSpell(entry.second->GetId()) && entry.second->HasMechanicMask(mechanics))
+                    return true;
+            return false;
         }
     };
 
@@ -1143,7 +1163,7 @@ namespace ai
         virtual bool IsActive() override
         {
             Unit* target = ai->GetUnit(AI_VALUE(ObjectGuid, "current target"));
-            return target && AI_VALUE2(bool, "has mana", "current target");
+            return target && target->GetPower(POWER_MANA) > 0 && ai->CanCastSpell("mana tap", target, 0);
         }
     };
 

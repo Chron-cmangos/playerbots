@@ -8,6 +8,9 @@
 #include "WorldPosition.h"
 #include <map>
 #include <list>
+#include <set>
+#include <unordered_set>
+#include <vector>
 
 class WorldPacket;
 class Player;
@@ -107,14 +110,14 @@ public:
         void SetTradeDiscount(Player* bot, Player* master, uint32 value);
         uint32 GetTradeDiscount(Player* bot, Player* master);
         void Refresh(Player* bot);
-        void RandomTeleportForLevel(Player* bot, bool activeOnly);
-        void RandomTeleportForLevel(Player* bot) { return RandomTeleportForLevel(bot, true); }
-        void RandomTeleportForRpg(Player* bot, bool activeOnly);
-        void RandomTeleportForRpg(Player* bot) { return RandomTeleportForRpg(bot, true); }
+        bool RandomTeleportForLevel(Player* bot, bool activeOnly);
+        bool RandomTeleportForLevel(Player* bot) { return RandomTeleportForLevel(bot, true); }
+        bool RandomTeleportForRpg(Player* bot, bool activeOnly);
+        bool RandomTeleportForRpg(Player* bot) { return RandomTeleportForRpg(bot, true); }
         int GetMaxAllowedBotCount();
         bool ProcessBot(Player* player);
         void Revive(Player* player);
-        void ChangeStrategy(Player* player);
+        bool ChangeStrategy(Player* player);
         uint32 GetValue(Player* bot, std::string type);
         uint32 GetValue(uint32 bot, std::string type);
         int32 GetValueValidTime(uint32 bot, std::string event);
@@ -175,10 +178,17 @@ public:
         botPID pid = botPID(1, 50, -50, 0, 0, 0);
         float activityMod = 0.25;
         std::map<std::string, uint32> databaseDelay;
-        uint32 GetEventValue(uint32 bot, std::string event);
-        std::string GetEventData(uint32 bot, std::string event);
-        uint32 SetEventValue(uint32 bot, std::string event, uint32 value, uint32 validIn, std::string data = "");
-        std::list<uint32> GetBots();
+        uint32 GetEventValue(uint32 bot, const std::string& event);
+        std::string GetEventData(uint32 bot, const std::string& event);
+        uint32 SetEventValue(uint32 bot, const std::string& event, uint32 value, uint32 validIn, const std::string& data = "");
+        const std::vector<uint32>& GetBots();
+        void EnsureEventCacheLoaded(uint32 bot);
+        uint64 PruneExpiredEventCache(time_t now);
+        uint32 PrunePendingBotLogins(time_t now);
+        void MarkPendingBotLogin(uint32 bot, time_t now);
+        void ClearPendingBotLogin(uint32 bot);
+        bool IsPendingBotLogin(uint32 bot) const;
+        void LogTeleportFailure(Player* bot);
         std::list<uint32> GetBgBots(uint32 bracket);
         time_t BgCheckTimer;
         time_t LfgCheckTimer;
@@ -189,7 +199,7 @@ public:
         bool ProcessBot(uint32 bot);
         void ScheduleRandomize(uint32 bot, uint32 time);
         void RandomTeleport(Player* bot);
-        void RandomTeleport(Player* bot, std::vector<WorldLocation> &locs, bool hearth = false, bool activeOnly = false);
+        bool RandomTeleport(Player* bot, std::vector<WorldLocation> &locs, bool hearth = false, bool activeOnly = false);
         uint32 GetZoneLevel(uint16 mapId, float teleX, float teleY, float teleZ);
         void PrepareTeleportCache();
         typedef std::list<std::string> (RandomPlayerbotMgr::*ConsoleCommandHandler) (std::string param);
@@ -242,8 +252,6 @@ public:
         std::list<std::string> HandleConsoleCleanMap(std::string param);
         std::list<std::string> HandleConsoleLoginDebug(std::string param);
         std::list<std::string> HandleConsolePathCheck(std::string param);
-        std::list<std::string> HandleConsoleTaxTest(std::string param);
-        std::list<std::string> HandleConsoleZoneUpd(std::string param);
         // Override virtual methods from PlayerbotHolder
         virtual uint32 GetOrCreateAccount(Player* master, std::string& error) override;
         virtual void OnBotDeleted(uint32 botGuid, uint32 accountId) override;
@@ -272,13 +280,32 @@ public:
         std::map<uint32, std::map<uint32, std::vector<std::pair<ObjectGuid, WorldLocation>> > > innCacheLevel;
         std::map<Team, std::map<BattleGroundTypeId, std::list<uint32> > > BattleMastersCache;
         std::map<uint32, std::map<std::string, CachedEvent> > eventCache;
+        std::unordered_set<uint32> loadedEventBots;
+        std::unordered_map<uint32, time_t> pendingBotLogins;
         BarGoLink* loginProgressBar;
-        std::list<uint32> currentBots;
+        std::vector<uint32> currentBots;
+        size_t processBotCursor = 0;
+        size_t loginBotCursor = 0;
         std::list<uint32> arenaTeamMembers;
         uint32 bgBotsCount;
         uint32 playersLevel = 0;
         uint32 botCount = 0;
-        uint32 activeBots = 0;        
+        uint32 activeBots = 0;
+        time_t databasePingTimer = 0;
+        time_t performanceMapScanTimer = 0;
+        time_t memoryMaintenanceTimer = 0;
+        size_t memoryMaintenanceCursor = 0;
+        size_t memoryMaintenanceRemaining = 0;
+        uint64 memoryMaintenanceReleased = 0;
+        time_t admissionStateLogTimer = 0;
+        bool memoryAdmissionPaused = false;
+        uint64 lastPrivateBytes = 0;
+        uint64 eventCachePeakEstimatedBytes = 0;
+        uint64 aiCachePeakEstimatedBytes = 0;
+        uint64 expiredEventsReleased = 0;
+        time_t teleportFailureLogTimer = 0;
+        uint32 suppressedTeleportFailureLogs = 0;
+        std::set<std::pair<uint32, uint32>> initializedPerformanceMaps;
 
         std::unordered_map<uint32, std::vector<std::pair<int32,int32>>> playerBotMoveLog;
         typedef std::unordered_map <uint32, std::list<float>> botPerformanceMetric;

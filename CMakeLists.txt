@@ -108,10 +108,12 @@ file(GLOB Playerbot_Warrior ${CMAKE_CURRENT_SOURCE_DIR}/playerbot/strategy/warri
     source_group("Player Bot\\Strategies\\Warrior" FILES ${Playerbot_Warrior})
     LIST(APPEND LIBRARY_SRCS ${Playerbot_Warrior})
 
-#Deathknight AI
+# Death knights exist only in Wrath. Do not compile their implementation into older cores.
+if (CMAKE_PROJECT_NAME MATCHES "WoTLK")
 file(GLOB Playerbot_DeathKnight ${CMAKE_CURRENT_SOURCE_DIR}/playerbot/strategy/deathknight/*.cpp ${CMAKE_CURRENT_SOURCE_DIR}/playerbot/strategy/deathknight/*.h)
     source_group("Player Bot\\Strategies\\DeathKnight" FILES ${Playerbot_DeathKnight})
     LIST(APPEND LIBRARY_SRCS ${Playerbot_DeathKnight})
+endif()
 
 #Test framework
 file(GLOB Playerbot_Tests ${CMAKE_CURRENT_SOURCE_DIR}/playerbot/strategy/tests/*.cpp ${CMAKE_CURRENT_SOURCE_DIR}/playerbot/strategy/tests/*.h)
@@ -189,16 +191,6 @@ if (NOT CONF_INSTALL_DIR)
   set(CONF_INSTALL_DIR ${CONF_DIR})
 endif()
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/aiplayerbot.conf.dist DESTINATION ${CONF_INSTALL_DIR})
-
-# The bundled AhBot replaces the core AuctionHouseBot whenever BUILD_AHBOT is
-# off, which is the default for a playerbots build. Its config template was
-# never installed, so AhBotConfig::Initialize() could not find ahbot.conf and
-# AhBot disabled itself on startup. Guarded so it cannot collide with the
-# core's own ahbot.conf.dist when the AuctionHouseBot module is selected.
-if (NOT BUILD_AHBOT)
-	configure_file(${CMAKE_CURRENT_SOURCE_DIR}/ahbot/ahbot.conf.dist.in ${CMAKE_CURRENT_BINARY_DIR}/ahbot.conf.dist)
-	install(FILES ${CMAKE_CURRENT_BINARY_DIR}/ahbot.conf.dist DESTINATION ${CONF_INSTALL_DIR})
-endif()
 
 set_target_properties(${LIBRARY_NAME} PROPERTIES PROJECT_LABEL "PlayerBots")
 

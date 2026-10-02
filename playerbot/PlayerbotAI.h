@@ -1,4 +1,6 @@
 #pragma once
+
+#include <atomic>
 #include "PlayerbotMgr.h"
 #include "PlayerbotAIBase.h"
 #include "strategy/AiObjectContext.h"
@@ -10,6 +12,7 @@
 #include "BotState.h"
 #include "PlayerTalentSpec.h"
 #include <stack>
+#include <unordered_map>
 #include <deque>
 #include <functional>
 #include "strategy/IterateItemsMask.h"
@@ -388,13 +391,14 @@ public:
 
 public:
     std::string GetCommand() { return command; }
-    Player* GetOwner() { return owner; }
+    Player* GetOwner() { return owner.Get(); }
+    bool IsOwnerAvailable() const { return owner.IsAvailable(); }
     uint32 GetType() { return type; }
     time_t GetTime() { return time; }
 
 private:
     std::string command;
-    Player* owner;
+    EventOwner owner;
     uint32 type;
     time_t time;
 };
@@ -406,7 +410,7 @@ public:
 	PlayerbotAI(Player* bot);
 	virtual ~PlayerbotAI();
 
-    virtual void UpdateAI(uint32 elapsed, bool minimal = false);
+    virtual void UpdateAI(uint32 elapsed, bool minimal = false, bool delayAlreadyAdvanced = false);
 
     void HandleCommands();
 private:
@@ -443,6 +447,13 @@ public:
     void HandleMasterIncomingPacket(const WorldPacket& packet);
     void HandleMasterOutgoingPacket(const WorldPacket& packet);
 	void HandleTeleportAck();
+    void QueueSummonRevival(uint32 mapId, float x, float y, float z, uint32 instanceId = 0);
+    void CompleteSummonRevival();
+    uint32 GetTransitionGeneration() const { return transitionGeneration.load(std::memory_order_acquire); }
+    bool IsTransitionContextCurrent(uint32 generation, uint32 mapId, uint32 instanceId) const;
+    static void RecordDiscardedTransitionWork();
+    static uint64 ConsumeDiscardedTransitionWork();
+    static uint64 ConsumeTransitionRequests();
     void ChangeEngine(BotState type);
     void DoNextAction(bool minimal = false);
     bool CanDoSpecificAction(const std::string& name, bool isUseful = true, bool isPossible = true);
@@ -506,7 +517,7 @@ public:
     bool TellPlayer(Player* player, std::ostringstream &stream, PlayerbotSecurityLevel securityLevel = PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, bool isPrivate = true, bool ignoreSilent = false) { return TellPlayer(player, stream.str(), securityLevel, isPrivate, ignoreSilent); }
     bool TellPlayer(Player* player, std::string text, PlayerbotSecurityLevel securityLevel = PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, bool isPrivate = true, bool ignoreSilent = false);
     bool TellPlayerNoFacing(Player* player, std::ostringstream& stream, PlayerbotSecurityLevel securityLevel = PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, bool isPrivate = true, bool noRepeat = true, bool ignoreSilent = false) { return TellPlayerNoFacing(player, stream.str(), securityLevel, isPrivate, noRepeat, ignoreSilent); }
-    bool TellPlayerNoFacing(Player* player, std::string text, PlayerbotSecurityLevel securityLevel = PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, bool isPrivate = true, bool noRepeat = true, bool ignoreSilent = false);
+    bool TellPlayerNoFacing(Player* player, std::string text, PlayerbotSecurityLevel securityLevel = PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, bool isPrivate = true, bool noRepeat = true, bool ignoreSilent = false, bool forceWhisper = false);
     bool TellDebug(Player* player, std::string text, std::string strategy = "debug", BotState state = BotState::BOT_STATE_NON_COMBAT){ if (HasStrategy(strategy, state)) return TellPlayerNoFacing(player, text, PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, true, false); return false;}
     bool TellError(Player* player, std::string text, PlayerbotSecurityLevel securityLevel = PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, bool ignoreSilent = false);
     void SpellInterrupted(uint32 spellid);
@@ -557,6 +568,7 @@ public:
 
     bool HasSpell(std::string name) const;
     bool HasSpell(uint32 spellid) const;
+    size_t GetSpellCapabilityCacheSize() const { return spellCapabilityCache.size(); }
     bool HasAura(uint32 spellId, Unit* player, bool checkOwner = false);
     Aura* GetAura(uint32 spellId, Unit* player, bool checkOwner = false);
     Aura* GetAura(std::string spellName, Unit* player, bool checkOwner = false);
@@ -565,6 +577,8 @@ public:
     bool HasSpellItems(uint32 spellId, const Item* castItem) const;
     void DurabilityLoss(Item* item, double percent);
 
+    // effectMask == 0 uses the native explicit-target/self-target effect masks.
+    // It is not a checkHasSpell boolean (the numeric overload has that separately).
     virtual bool CanCastSpell(std::string name, Unit* target, uint8 effectMask, Item* itemTarget = nullptr, bool ignoreRange = false, bool ignoreInCombat = false, bool ignoreMount = false, SpellCastResult* checkResult = nullptr);
     bool CanCastSpell(uint32 spellid, Unit* target, uint8 effectMask, bool checkHasSpell = true, Item* itemTarget = nullptr, bool ignoreRange = false, bool ignoreInCombat = false, bool ignoreMount = false, SpellCastResult* checkResult = nullptr);
     bool CanCastSpell(uint32 spellid, GameObject* goTarget, uint8 effectMask, bool checkHasSpell = true, bool ignoreRange = false, bool ignoreInCombat = false, bool ignoreMount = false, SpellCastResult* checkResult = nullptr);
@@ -575,6 +589,7 @@ public:
     bool CastSpell(uint32 spellId, Unit* target, Item* itemTarget = nullptr, bool waitForSpell = true, uint32* outSpellDuration = nullptr);
     bool CastSpell(uint32 spellId, GameObject* goTarget, Item* itemTarget = nullptr, bool waitForSpell = true, uint32* outSpellDuration = nullptr);
     bool CastSpell(uint32 spellId, float x, float y, float z, Item* itemTarget = nullptr, bool waitForSpell = true, uint32* outSpellDuration = nullptr);
+    bool CanCastPetSpell(uint32 spellId, Unit* target, SpellCastResult* checkResult = nullptr);
     bool CastPetSpell(uint32 spellId, Unit* target);
     bool CastVehicleSpell(uint32 spellId, Unit* target, float projectileSpeed, bool needTurn);
     bool CastVehicleSpell(uint32 spellId, float x, float y, float z);
@@ -693,6 +708,7 @@ public:
     void ResetJumpDestination() { jumpDestination = WorldPosition(); }
 
     bool IsJumping() { return jumpTime; }
+    uint32 GetJumpTime() const { return jumpTime; }
     void SetFallAfterJump() { fallAfterJump = true; }
     void SetJumpTime(uint32 time) { jumpTime = time; }
     bool CanMove();
@@ -756,6 +772,10 @@ public:
 private:
     bool UpdateAIReaction(uint32 elapsed, bool minimal, bool isStunned);
     void UpdateFaceTarget(uint32 elapsed, bool minimal);
+    void RequestUrgentTransition(uint32 triggerId);
+    void PrepareForUrgentTransition();
+    bool ProcessPendingTransition();
+    void ClearPendingTransition(uint32 expectedTriggerId = 0, bool stopMovement = false);
 
 protected:
 	Player* bot;
@@ -774,6 +794,36 @@ protected:
     std::queue<ChatCommandHolder> chatCommands;
     std::queue<ChatQueuedReply> chatReplies;
     std::mutex chatRepliesMutex;
+    // A login/map transition can expose the same bot to two update paths for
+    // a short window. Never execute its mutable AI context concurrently.
+    std::mutex updateExecutionMutex;
+    // Map/instance transitions invalidate movement and AI work calculated in
+    // the previous world context. These atomics are also read by Arch2 worker
+    // queues without touching mutable AI state.
+    std::atomic<uint32> transitionGeneration{1};
+    std::atomic<bool> urgentTransitionPending{false};
+    struct PendingSummonRevival
+    {
+        bool active = false;
+        uint32 mapId = 0;
+        uint32 instanceId = 0;
+        float x = 0, y = 0, z = 0;
+        time_t expires = 0;
+    };
+    PendingSummonRevival pendingSummonRevival;
+    struct PendingTransitionState
+    {
+        uint32 triggerId = 0;
+        uint32 sourceMapId = 0;
+        uint32 sourceInstanceId = 0;
+        uint32 startedAtMs = 0;
+        uint32 lastAttemptAtMs = 0;
+        uint32 attempts = 0;
+    };
+    std::mutex pendingTransitionMutex;
+    PendingTransitionState pendingTransition;
+    static std::atomic<uint64> discardedTransitionWork;
+    static std::atomic<uint64> transitionRequests;
     PacketHandlingHelper botOutgoingPacketHandlers;
     PacketHandlingHelper masterIncomingPacketHandlers;
     PacketHandlingHelper masterOutgoingPacketHandlers;
@@ -792,6 +842,7 @@ protected:
     uint32 jumpTime;
     bool fallAfterJump;
     uint32 faceTargetUpdateDelay;
+    uint32 lastValueCacheCleanupMs = 0;
     bool isPlayerFriend = false;
     bool isMovingToTransport = false;
     bool shouldLogOut = false;
@@ -799,6 +850,17 @@ protected:
     bool m_recordIncommingMessages = false;
     std::vector<std::string> m_recordedMessages;
     Event lastEvent;
+    struct SpellCapabilityEntry
+    {
+        uint32 signature = 0;
+        uint32 expiresAtMs = 0;
+        bool known = false;
+    };
+    // Static spellbook capability answers are hot and stable for long stretches.
+    // The short TTL plus level/spell-count signature keeps this cache correct
+    // across training, level, talent, pet and form changes without caching any
+    // dynamic cast state (cooldown/range/resource/target/LOS).
+    mutable std::unordered_map<uint32, SpellCapabilityEntry> spellCapabilityCache;
 
 public:
     void RecordMessages(bool record, bool incomming = false) { m_recordMessages = record; m_recordIncommingMessages = incomming; if (!record) m_recordedMessages.clear(); }

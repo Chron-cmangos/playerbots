@@ -1,8 +1,22 @@
 #pragma once
 #include "playerbot/strategy/triggers/GenericTriggers.h"
 
-namespace ai 
+namespace ai
 {
+#ifdef MANGOSBOT_TWO
+    class SavageRoarTrigger : public BuffTrigger
+    {
+    public:
+        SavageRoarTrigger(PlayerbotAI* ai) : BuffTrigger(ai, "savage roar") {}
+        bool IsActive() override
+        {
+            const uint32 spellId = AI_VALUE2(uint32, "spell id", spell);
+            if (!spellId || !ai->HasSpell(spellId) || !bot->IsSpellReady(spellId))
+                return false;
+            return bot->GetShapeshiftForm() == FORM_CAT && bot->GetComboPoints() > 0 && BuffTrigger::IsActive();
+        }
+    };
+#endif
     class MarkOfTheWildOnPartyTrigger : public BuffOnPartyTrigger 
     {
     public:
@@ -348,7 +362,10 @@ namespace ai
 
         bool IsActive() override
         {
-            if (ai->HasAura("cat form", bot) &&
+#ifdef MANGOSBOT_TWO
+            return false;
+#else
+            if (ai->HasAura("furor", bot) && ai->HasAura("cat form", bot) &&
                 AI_VALUE2(uint8, "energy", "self target") < 20 &&
                 AI_VALUE2(uint8, "mana", "self target") > sPlayerbotAIConfig.lowMana)
             {
@@ -356,6 +373,7 @@ namespace ai
             }
 
             return false;
+#endif
         }
     };
 
@@ -387,13 +405,9 @@ namespace ai
         {
             if (SpellTargetTrigger::IsTargetValid(target))
             {
-                const uint32 currentMana = target->GetPower(POWER_MANA);
-                if (currentMana > 0)
-                {
-                    const uint32 maxMana = target->GetMaxPower(POWER_MANA);
-                    const uint32 currentManaPct = (uint32)(currentMana / maxMana) * 100;
-                    return currentManaPct < sPlayerbotAIConfig.lowMana;
-                }
+                const uint32 maxMana = target->GetMaxPower(POWER_MANA);
+                return maxMana && uint64(target->GetPower(POWER_MANA)) * 100 <
+                    uint64(maxMana) * sPlayerbotAIConfig.lowMana;
             }
 
             return false;

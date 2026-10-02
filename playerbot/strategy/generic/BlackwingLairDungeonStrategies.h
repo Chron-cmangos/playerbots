@@ -12,6 +12,10 @@ namespace ai
     private:
         void InitCombatTriggers(std::list<TriggerNode*>& triggers) override;
         void InitNonCombatTriggers(std::list<TriggerNode*>& triggers) override;
+        void InitReactionTriggers(std::list<TriggerNode*>& triggers) override;
+        void InitReactionMultipliers(std::list<Multiplier*>& multipliers) override;
+        void InitCombatMultipliers(std::list<Multiplier*>& multipliers) override;
+        void InitNonCombatMultipliers(std::list<Multiplier*>& multipliers) override;
     };
 
     class SuppressionRoomStrategy : public Strategy
@@ -25,6 +29,5 @@ namespace ai
         void InitNonCombatTriggers(std::list<TriggerNode*>& triggers) override;
         void InitCombatMultipliers(std::list<Multiplier*>& multipliers) override;
         void InitNonCombatMultipliers(std::list<Multiplier*>& multipliers) override;
-        void OnStrategyAdded(BotState state) override;
     };
 }

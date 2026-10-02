@@ -75,11 +75,24 @@ NextAction** FrostDKStrategy::GetDefaultCombatActions()
 
 void FrostDKStrategy::InitCombatTriggers(std::list<TriggerNode*> &triggers)
 {
+#if defined(MANGOSBOT_TWO)
+
+    triggers.push_back(new TriggerNode("very often", NextAction::array(0, new NextAction("unbreakable armor", ACTION_HIGH + 2), nullptr)));
+#endif
+
+#if defined(MANGOSBOT_TWO)
+
+    triggers.push_back(new TriggerNode("very often", NextAction::array(0, new NextAction("deathchill", ACTION_HIGH + 3), nullptr)));
+#endif
+
     GenericDKStrategy::InitCombatTriggers(triggers);
+
+    triggers.push_back(new TriggerNode("killing machine",
+        NextAction::array(0, new NextAction("frost strike", ACTION_HIGH + 2), NULL)));
 
     triggers.push_back(new TriggerNode(
         "empower weapon",
-        NextAction::array(0, new NextAction("empower weapon", ACTION_NORMAL + 4), NULL)));
+        NextAction::array(0, new NextAction("empower rune weapon", ACTION_NORMAL + 4), NULL)));
 }
 
 void FrostDKAoeStrategy::InitCombatTriggers(std::list<TriggerNode*> &triggers)

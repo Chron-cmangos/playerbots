@@ -1,8 +1,37 @@
+#include "playerbot/strategy/MeleeCombatPolicy.h"
 #pragma once
+#include "playerbot/strategy/actions/HealerSupportActions.h"
 #include "playerbot/strategy/actions/GenericActions.h"
 
 namespace ai
 {
+#ifdef MANGOSBOT_TWO
+    BUFF_ACTION(CastSavageRoarAction, "savage roar");
+    template<class Base>
+    class CastNourishWithHotAction : public Base
+    {
+    public:
+        CastNourishWithHotAction(PlayerbotAI* ai) : Base(ai, "nourish") {}
+        bool isUseful() override
+        {
+            if (!Base::isUseful())
+                return false;
+            Unit* target = this->GetTarget();
+            if (!target)
+                return false;
+            // Use the same owned periodic-heal test as CMaNGOS's Nourish
+            // spell script. Existing Regrowth/Rejuvenation remain fallbacks.
+            for (const auto aura : target->GetAurasByType(SPELL_AURA_PERIODIC_HEAL))
+                if (aura->GetSpellProto()->SpellFamilyName == SPELLFAMILY_DRUID &&
+                    aura->GetCasterGuid() == this->bot->GetObjectGuid())
+                    return true;
+            return false;
+        }
+    };
+    using CastNourishAction = CastNourishWithHotAction<CastHealingSpellAction>;
+    using CastNourishOnPartyAction = CastNourishWithHotAction<HealPartyMemberAction>;
+    HEAL_PARTY_ACTION(CastWildGrowthOnPartyAction, "wild growth");
+#endif
 	class CastFaerieFireAction : public CastRangedDebuffSpellAction
 	{
 	public:
@@ -217,7 +246,14 @@ namespace ai
     class CastBarskinAction : public CastBuffSpellAction
     {
     public:
-        CastBarskinAction(PlayerbotAI* ai) : CastBuffSpellAction(ai, "barskin") {}
+        CastBarskinAction(PlayerbotAI* ai) : CastBuffSpellAction(ai, "barkskin") {}
+        bool isUseful() override
+        {
+#ifdef MANGOSBOT_ZERO
+            if (ai->IsHeal(bot) && bot->GetHealthPercent() >= sPlayerbotAIConfig.criticalHealth) return false;
+#endif
+            return CastBuffSpellAction::isUseful();
+        }
     };
 
     class CastInnervateAction : public CastSpellTargetAction
@@ -230,13 +266,9 @@ namespace ai
         {
             if (CastSpellTargetAction::IsTargetValid(target))
             {
-                const uint32 currentMana = target->GetPower(POWER_MANA);
-                if (currentMana > 0)
-                {
-                    const uint32 maxMana = target->GetMaxPower(POWER_MANA);
-                    const uint32 currentManaPct = (uint32)(currentMana / maxMana) * 100;
-                    return currentManaPct < sPlayerbotAIConfig.lowMana;
-                }
+                const uint32 maxMana = target->GetMaxPower(POWER_MANA);
+                return maxMana && uint64(target->GetPower(POWER_MANA)) * 100 <
+                    uint64(maxMana) * sPlayerbotAIConfig.lowMana;
             }
 
             return false;
@@ -247,6 +279,7 @@ namespace ai
     {
     public:
         CastTranquilityAction(PlayerbotAI* ai) : CastAoeHealSpellAction(ai, "tranquility") {}
+        std::string GetTargetName() override { return "self target"; }
     };
 
     class CastNaturesSwiftnessAction : public CastBuffSpellAction
@@ -326,7 +359,7 @@ namespace ai
 				;
 
 			// useful if no mount or with wsg flag
-			return !bot->IsMounted() || !firstmount;
+            return CastBuffSpellAction::isUseful() && (!bot->IsMounted() || !firstmount);
 		}
 	};
 
@@ -394,6 +427,18 @@ namespace ai
     {
     public:
         CastBerserkAction(PlayerbotAI* ai) : CastBuffSpellAction(ai, "berserk") {}
+        bool isUseful() override
+        {
+#ifdef MANGOSBOT_TWO
+            if (!MeleeOpportunity(ai) || !CastBuffSpellAction::isUseful()) return false;
+            const auto form = bot->GetShapeshiftForm();
+            return (form == FORM_CAT && bot->GetPower(POWER_ENERGY) >= 40) ||
+                ((form == FORM_BEAR || form == FORM_DIREBEAR) &&
+                 (SafeMeleeTargetCount(ai, 5.0f) >= 2 || AI_VALUE2(uint8, "health", "self target") < 50));
+#else
+            return false;
+#endif
+        }
     };
 
     class CastTigersFuryAction : public CastBuffSpellAction
@@ -423,6 +468,7 @@ namespace ai
     class CastSwipeCatAction : public CastMeleeSpellAction
     {
     public:
+        ActionThreatType getThreatType() override { return ActionThreatType::ACTION_THREAT_AOE; }
         CastSwipeCatAction(PlayerbotAI* ai) : CastMeleeSpellAction(ai, "swipe (cat)") {}
     };
 
@@ -459,19 +505,20 @@ namespace ai
             }
 
             // do not use with WSG flag
-            return !ai->HasAura(23333, bot) && !ai->HasAura(23335, bot) && !ai->HasAura(34976, bot);
+            return CastBuffSpellAction::isUseful() && !ai->HasAura(23333, bot) && !ai->HasAura(23335, bot) && !ai->HasAura(34976, bot);
         }
 
         virtual bool Execute(Event& event)
         {
-            if (ai->CastSpell("prowl", bot))
+            if (CastBuffSpellAction::Execute(event))
             {
                 ai->ChangeStrategy("+stealthed", BotState::BOT_STATE_COMBAT);
                 ai->ChangeStrategy("+stealthed", BotState::BOT_STATE_NON_COMBAT);
                 bot->InterruptSpell(CURRENT_MELEE_SPELL);
+                return true;
             }
 
-            return true;
+            return false;
         }
     };
 
@@ -579,6 +626,7 @@ namespace ai
     class CastSwipeAction : public CastMeleeSpellAction
     {
     public:
+        ActionThreatType getThreatType() override { return ActionThreatType::ACTION_THREAT_AOE; }
         CastSwipeAction(PlayerbotAI* ai) : CastMeleeSpellAction(ai, "swipe") {}
     };
 
@@ -597,6 +645,7 @@ namespace ai
     class CastSwipeBearAction : public CastMeleeSpellAction
     {
     public:
+        ActionThreatType getThreatType() override { return ActionThreatType::ACTION_THREAT_AOE; }
 #ifdef MANGOSBOT_TWO
         CastSwipeBearAction(PlayerbotAI* ai) : CastMeleeSpellAction(ai, "swipe (bear)") {}
 #else
@@ -634,10 +683,10 @@ namespace ai
         CastEnrageAction(PlayerbotAI* ai) : CastBuffSpellAction(ai, "enrage") {}
     };
 
-    class CastLifebloomAction : public CastSpellAction
+    class CastLifebloomAction : public CastHealingSpellAction
     {
     public:
-        explicit CastLifebloomAction(PlayerbotAI* ai) : CastSpellAction(ai, "lifebloom") {}
+        explicit CastLifebloomAction(PlayerbotAI* ai) : CastHealingSpellAction(ai, "lifebloom", 15, true) {}
 
         std::string GetTargetName() override { return "party tank without lifebloom"; }
     };

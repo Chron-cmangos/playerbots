@@ -1,9 +1,22 @@
 #pragma once
 #include "DungeonTriggers.h"
 #include "GenericTriggers.h"
+#include "playerbot/strategy/actions/MechanarDungeonActions.h"
 
 namespace ai
 {
+    class PathaleonAddsTrigger : public Trigger
+    {
+    public:
+        PathaleonAddsTrigger(PlayerbotAI* ai) : Trigger(ai, "pathaleon attack adds", 1) {}
+        bool IsActive() override { PathaleonAddsAction action(ai); return action.isUseful(); }
+    };
+    class MechanarPositionTrigger : public Trigger
+    {
+    public:
+        MechanarPositionTrigger(PlayerbotAI* ai) : Trigger(ai, "mechanar safe position", 1) {}
+        bool IsActive() override { MechanarPositionAction action(ai); return action.isUseful(); }
+    };
 	class MechanarEnterDungeonTrigger : public EnterDungeonTrigger
 	{
 	public:
@@ -31,6 +44,6 @@ namespace ai
 	class RagingFlamesTooCloseTrigger : public CloseToCreatureTrigger
 	{
 	public:
-		RagingFlamesTooCloseTrigger(PlayerbotAI* ai) : CloseToCreatureTrigger(ai, "raging flames too close", 20481, 12.0f, true) {}
+		RagingFlamesTooCloseTrigger(PlayerbotAI* ai) : CloseToCreatureTrigger(ai, "raging flames too close", 20481, 15.0f, true) {}
 	};
 }

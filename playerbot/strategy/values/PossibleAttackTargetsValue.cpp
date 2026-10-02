@@ -2,6 +2,7 @@
 #include "playerbot/playerbot.h"
 #include "PossibleAttackTargetsValue.h"
 #include "PossibleTargetsValue.h"
+#include "playerbot/strategy/actions/EncounterSpellPolicy.h"
 
 #include "playerbot/ServerFacade.h"
 #include "Grids/GridNotifiers.h"
@@ -112,6 +113,7 @@ bool PossibleAttackTargetsValue::HasIgnoreCCRti(Unit* target, Player* player)
 
 bool PossibleAttackTargetsValue::HasBreakableCC(Unit* target, Player* player)
 {
+    if (IsViscidusShatterTarget(target, player)) return false;
     if (target->IsPolymorphed())
     {
         return true;
@@ -146,6 +148,7 @@ bool PossibleAttackTargetsValue::HasBreakableCC(Unit* target, Player* player)
 
 bool PossibleAttackTargetsValue::HasUnBreakableCC(Unit* target, Player* player)
 {
+    if (IsViscidusShatterTarget(target, player)) return false;
     if (target->IsStunned())
     {
         return true;
@@ -194,6 +197,10 @@ bool PossibleAttackTargetsValue::IsCcTarget(Unit* attacker, Player* player)
                     }
                 }
             }
+
+            uint64 guid = group->GetTargetIcon(4);
+            if (guid && attacker->GetObjectGuid() == ObjectGuid(guid))
+                return true;
         }
     }
 
@@ -340,6 +347,8 @@ bool PossibleAttackTargetsValue::IsValid(Unit* target, Player* player, float ran
 
 bool PossibleAttackTargetsValue::IsPossibleTarget(Unit* target, Player* player, float range, bool ignoreCC)
 {
+    // This path is also used with a cached attacker list and attacker validation disabled.
+    if (!PossibleTargetsValue::IsValid(target, player, true) || IsProtectedBlackwingTarget(player, target)) return false;
     if(target)
     {
         // If the target is in an attackable distance

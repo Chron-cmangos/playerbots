@@ -213,11 +213,7 @@ void TalkToQuestGiverAction::RewardMultipleItem(Player* requester, Quest const* 
     ) {
         //Pick the first item of the best rewards.
         bestIds = BestRewards(quest);
-        // BestRewards() returns an empty set when the quest has no reward choices, so this cannot
-        // dereference begin() unconditionally - that was an access violation here. Fall back to
-        // index 0 exactly like the branch below already does.
-        uint32 rewardIndex = bestIds.empty() ? 0 : *bestIds.begin();
-        ItemPrototype const* proto = sObjectMgr.GetItemPrototype(quest->RewChoiceItemId[rewardIndex]);
+        ItemPrototype const* proto = sObjectMgr.GetItemPrototype(quest->RewChoiceItemId[*bestIds.begin()]);
         if(proto)
         {
             args["%item"] = chat->formatItem(proto);
@@ -226,7 +222,7 @@ void TalkToQuestGiverAction::RewardMultipleItem(Player* requester, Quest const* 
             BroadcastHelper::BroadcastQuestTurnedIn(ai, bot, quest);
         }
 
-        bot->RewardQuest(quest, rewardIndex, questGiver, true);
+        bot->RewardQuest(quest, *bestIds.begin(), questGiver, true);
     }
     else if ((questRewardOption == QuestRewardOptionType::QUEST_REWARD_CONFIG_DRIVEN && sPlayerbotAIConfig.autoPickReward == "no") ||
              questRewardOption == QuestRewardOptionType::QUEST_REWARD_OPTION_LIST

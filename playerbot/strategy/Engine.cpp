@@ -1,17 +1,233 @@
+#include "Util/DevDiagnostics.h"
 
 #include "playerbot/playerbot.h"
+#include "playerbot/BotIncidentHistory.h"
 #include <stdarg.h>
 #include <iomanip>
 
 #include "Engine.h"
+#include "warrior/WarriorCombatPolicy.h"
+#include "actions/GenericActions.h"
 #include "playerbot/PlayerbotAIConfig.h"
+#include "playerbot/PlayerbotDiagnostics.h"
+#include "playerbot/CombatDiagnostics.h"
 #include "playerbot/PerformanceMonitor.h"
+
+#include <chrono>
 
 #ifdef BUILD_ELUNA
 #include "LuaEngine/LuaEngine.h"
 #endif
 
 using namespace ai;
+
+namespace
+{
+    bool IsExplicitPlayerCommand(Action* action, const Event& event)
+    {
+        if (!dynamic_cast<ChatCommandAction*>(action))
+            return false;
+
+        Player* requester = event.getOwner();
+        return requester && requester->isRealPlayer();
+    }
+}
+
+std::atomic<uint64> Engine::suppressedImpossibleActions{0};
+std::atomic<uint64> Engine::suppressedFailedActions{0};
+std::atomic<uint64> Engine::actionFailureCacheEntries{0};
+std::atomic<uint64> Engine::actionFailureCachePeakEntries{0};
+std::atomic<uint64> Engine::expiredActionFailureEntries{0};
+std::atomic<uint64> Engine::evictedActionFailureEntries{0};
+
+uint64 Engine::GetSuppressedImpossibleActions()
+{
+    return suppressedImpossibleActions.load(std::memory_order_relaxed);
+}
+
+uint64 Engine::GetSuppressedFailedActions()
+{
+    return suppressedFailedActions.load(std::memory_order_relaxed);
+}
+
+uint64 Engine::GetActionFailureCacheEntries()
+{
+    return actionFailureCacheEntries.load(std::memory_order_relaxed);
+}
+
+uint64 Engine::GetActionFailureCachePeakEntries()
+{
+    return actionFailureCachePeakEntries.load(std::memory_order_relaxed);
+}
+
+uint64 Engine::GetExpiredActionFailureEntries()
+{
+    return expiredActionFailureEntries.load(std::memory_order_relaxed);
+}
+
+uint64 Engine::GetEvictedActionFailureEntries()
+{
+    return evictedActionFailureEntries.load(std::memory_order_relaxed);
+}
+
+void Engine::UpdateActionFailureCachePeak(uint64 value)
+{
+    uint64 current = actionFailureCachePeakEntries.load(std::memory_order_relaxed);
+    while (current < value &&
+        !actionFailureCachePeakEntries.compare_exchange_weak(current, value, std::memory_order_relaxed))
+    {
+    }
+}
+
+std::string Engine::GetFailureKey(Action* action, const Event& event, ActionResult reason) const
+{
+    std::ostringstream out;
+    out << action->getName() << '|' << event.getSource() << '|';
+    if (Unit* target = action->GetTarget())
+        out << target->GetObjectGuid().GetRawValue();
+    else
+        out << 0;
+    out << '|' << static_cast<uint32>(reason);
+    return out.str();
+}
+
+std::string Engine::GetFailureReadiness(Action* action) const
+{
+    auto spell = dynamic_cast<CastSpellAction*>(action);
+    if (!spell) return "";
+    Player* bot = ai->GetBot();
+    std::ostringstream out;
+    out << bot->GetPower(bot->GetPowerType()) << '|' << uint32(bot->GetShapeshiftForm()) << '|'
+        << bot->GetPositionX() << '|' << bot->GetPositionY() << '|' << bot->GetPositionZ();
+    if (Unit* target = action->GetTarget())
+        out << '|' << target->GetPositionX() << '|' << target->GetPositionY() << '|' << target->GetPositionZ();
+    // Native possibility includes resources, cooldown, range/LOS and proc state.
+    // Recheck only actions with a live failure entry, not every scheduled action.
+    out << '|' << spell->isPossible();
+    return out.str();
+}
+
+bool Engine::IsFailureBackedOff(Action* action, const Event& event, ActionResult reason) const
+{
+    // A fresh player request must be evaluated and receive its normal reply.
+    // Retry throttling applies to autonomous decisions, not chat commands.
+    if (IsExplicitPlayerCommand(action, event))
+        return false;
+
+    auto existing = actionFailures.find(GetFailureKey(action, event, reason));
+    if (existing == actionFailures.end())
+        return false;
+
+    const uint32 now = WorldTimer::getMSTime();
+    if (static_cast<int32>(existing->second.retryAfter - now) <= 0) return false;
+    return existing->second.readiness == GetFailureReadiness(action);
+}
+
+void Engine::RecordFailure(Action* action, const Event& event, ActionResult reason)
+{
+    if (sPlayerbotAIConfig.incidentHistory && reason == ACTION_RESULT_IMPOSSIBLE)
+        BotIncidentHistory::ActionResult(ai, action->getName(), false, true);
+    if (IsExplicitPlayerCommand(action, event))
+        return;
+
+    if (!sPlayerbotAIConfig.failedActionRetryBase || !sPlayerbotAIConfig.failedActionRetryMax)
+    {
+        ClearActionFailures();
+        return;
+    }
+
+    const uint32 now = WorldTimer::getMSTime();
+    PruneActionFailures(now, actionFailures.size() >= sPlayerbotAIConfig.failedActionCacheMaxEntries);
+
+    const std::string key = GetFailureKey(action, event, reason);
+    auto existing = actionFailures.find(key);
+    if (existing == actionFailures.end())
+    {
+        if (actionFailures.size() >= sPlayerbotAIConfig.failedActionCacheMaxEntries)
+        {
+            auto oldest = actionFailures.end();
+            uint32 oldestAge = 0;
+            for (auto candidate = actionFailures.begin(); candidate != actionFailures.end(); ++candidate)
+            {
+                const uint32 age = WorldTimer::getMSTimeDiff(candidate->second.lastFailure, now);
+                if (oldest == actionFailures.end() || age > oldestAge)
+                {
+                    oldest = candidate;
+                    oldestAge = age;
+                }
+            }
+
+            if (oldest != actionFailures.end())
+            {
+                actionFailures.erase(oldest);
+                actionFailureCacheEntries.fetch_sub(1, std::memory_order_relaxed);
+                evictedActionFailureEntries.fetch_add(1, std::memory_order_relaxed);
+            }
+        }
+
+        existing = actionFailures.emplace(key, FailureState()).first;
+        const uint64 totalEntries = actionFailureCacheEntries.fetch_add(1, std::memory_order_relaxed) + 1;
+        UpdateActionFailureCachePeak(totalEntries);
+    }
+
+    FailureState& failure = existing->second;
+    failure.failures = std::min<uint32>(failure.failures + 1, 16);
+    const uint32 shift = std::min<uint32>(failure.failures - 1, 4);
+    const uint64 delay = static_cast<uint64>(sPlayerbotAIConfig.failedActionRetryBase) << shift;
+    failure.retryAfter = now + static_cast<uint32>(std::min<uint64>(delay, sPlayerbotAIConfig.failedActionRetryMax));
+    failure.lastFailure = now;
+    failure.readiness = GetFailureReadiness(action);
+}
+
+void Engine::ClearFailures(Action* action, const Event& event)
+{
+    const size_t removed = actionFailures.erase(GetFailureKey(action, event, ACTION_RESULT_IMPOSSIBLE)) +
+        actionFailures.erase(GetFailureKey(action, event, ACTION_RESULT_FAILED));
+    if (removed)
+        actionFailureCacheEntries.fetch_sub(removed, std::memory_order_relaxed);
+}
+
+void Engine::PruneActionFailures(uint32 now, bool enforceLimit)
+{
+    if (actionFailures.empty())
+        return;
+
+    const uint32 pruneInterval = std::min<uint32>(5000, sPlayerbotAIConfig.failedActionCacheTtl);
+    if (!enforceLimit && lastActionFailurePrune &&
+        WorldTimer::getMSTimeDiff(lastActionFailurePrune, now) < pruneInterval)
+        return;
+
+    lastActionFailurePrune = now;
+    uint64 removed = 0;
+    for (auto existing = actionFailures.begin(); existing != actionFailures.end();)
+    {
+        if (WorldTimer::getMSTimeDiff(existing->second.lastFailure, now) < sPlayerbotAIConfig.failedActionCacheTtl)
+        {
+            ++existing;
+            continue;
+        }
+
+        existing = actionFailures.erase(existing);
+        ++removed;
+    }
+
+    if (removed)
+    {
+        actionFailureCacheEntries.fetch_sub(removed, std::memory_order_relaxed);
+        expiredActionFailureEntries.fetch_add(removed, std::memory_order_relaxed);
+    }
+}
+
+void Engine::ClearActionFailures()
+{
+    const uint64 removed = actionFailures.size();
+    if (removed)
+    {
+        actionFailures.clear();
+        actionFailureCacheEntries.fetch_sub(removed, std::memory_order_relaxed);
+    }
+    lastActionFailurePrune = 0;
+}
 
 Engine::Engine(PlayerbotAI* ai, AiObjectContext *factory, BotState state) : PlayerbotAIAware(ai), aiObjectContext(factory), state(state)
 {
@@ -77,6 +293,8 @@ Engine::~Engine(void)
 
 void Engine::Reset()
 {
+    ClearActionFailures();
+
     ActionNode* action = NULL;
     do
     {
@@ -112,8 +330,6 @@ void Engine::Init()
         MultiplyAndPush(strategy->getDefaultActions(state), 0.0f, false, Event(), "default");
     }
 
-    PruneUnhandledExternalEvents();
-
 	if (testMode)
 	{
         FILE* file = fopen("test.log", "w");
@@ -124,6 +340,18 @@ void Engine::Init()
 
 bool Engine::DoNextAction(Unit* unit, int depth, bool minimal, bool isStunned)
 {
+    MANTECH_DIAG_SCOPE(BotDecision,32,nullptr);
+    PruneActionFailures(WorldTimer::getMSTime());
+    // Expire old plans before fresh triggers deduplicate against them.
+    queue.RemoveExpired();
+
+    const bool collectDiagnostics = sPlayerbotDiagnostics.ShouldSampleEngineTick();
+    const auto diagnosticStart = std::chrono::steady_clock::now();
+    PlayerbotEngineSample diagnosticSample;
+    diagnosticSample.minimal = minimal;
+    if (collectDiagnostics)
+        diagnosticSample.queueStart = static_cast<uint32>(queue.Size());
+
     LogAction("--- AI Tick ---");
     if (sPlayerbotAIConfig.logValuesPerTick)
         LogValues();
@@ -149,16 +377,11 @@ bool Engine::DoNextAction(Unit* unit, int depth, bool minimal, bool isStunned)
             bool skipPrerequisites = basket->isSkipPrerequisites();
             Event event = basket->getEvent();
             if (minimal && (relevance < 100))
-                continue;
+                break;
             // NOTE: queue.Pop() deletes basket
             ActionNode* actionNode = queue.Pop();
-
-            // The event has had its turn now, so the trigger can be handed back - even if the action
-            // turns out to be unknown/useless/impossible, or deliberately does nothing with the
-            // packet (e.g. an already-alive bot declining a resurrect). Leaving it armed would have
-            // the same packet re-queued on every subsequent tick.
-            ReleaseExternalEvent(event.getSource());
-
+            if (collectDiagnostics)
+                ++diagnosticSample.evaluations;
             Action* action = InitializeAction(actionNode);
 
             std::string actionName = (action ? action->getName() : "unknown");
@@ -166,12 +389,17 @@ bool Engine::DoNextAction(Unit* unit, int depth, bool minimal, bool isStunned)
                 actionName += " <" + event.getSource() + ">";
             
             auto pmo1 = sPerformanceMonitor.start(PERF_MON_ACTION, actionName, ai);
+            CombatActionContext combatContext(actionName);
 
             if(action)
                 action->setRelevance(relevance);
 
             if (!action)
             {
+                if (collectDiagnostics)
+                    ++diagnosticSample.unknown;
+                if (CombatDiagnostics::Select(ai))
+                    CombatDiagnostics::Record(ai, actionNode->getName(), event.getSource(), "action_unknown", 0);
                 if (sPlayerbotAIConfig.CanLogAction(ai, actionNode->getName(), false, ""))
                 {
                     std::ostringstream out;
@@ -187,8 +415,6 @@ bool Engine::DoNextAction(Unit* unit, int depth, bool minimal, bool isStunned)
 
                     ai->TellPlayerNoFacing(ai->GetMaster() ? ai->GetMaster() : ai->GetBot(), out, PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, true, false);
 
-                    if (sPlayerbotAIConfig.hasLog("bot_events.csv"))
-                        sPlayerbotAIConfig.logEvent(ai, "try", actionNode->getName(), "unknown r=" + std::to_string(relevance));
                 }
                 LogAction("A:%s - UNKNOWN", actionNode->getName().c_str());
             }
@@ -198,12 +424,37 @@ bool Engine::DoNextAction(Unit* unit, int depth, bool minimal, bool isStunned)
                 if (!isStunned || action->isUsefulWhenStunned())
                 {
                     auto pmo2 = sPerformanceMonitor.start(PERF_MON_ACTION, "isUseful", ai);
+            MANTECH_DIAG_BEGIN(devDiagPmo2,BotUseful,32,actionName.c_str());
                     isUseful = action->isUseful();
+                    MANTECH_DIAG_END(devDiagPmo2);
                     pmo2.reset();
                 }
 
                 if (isUseful)
                 {
+                    if (IsFailureBackedOff(action, event, ACTION_RESULT_IMPOSSIBLE))
+                    {
+                        suppressedImpossibleActions.fetch_add(1, std::memory_order_relaxed);
+                        if (collectDiagnostics)
+                            ++diagnosticSample.suppressedImpossible;
+                        if (CombatDiagnostics::Select(ai))
+                            CombatDiagnostics::Record(ai, action->getName(), event.getSource(), "suppressed_impossible", 0);
+                        MultiplyAndPush(actionNode->getAlternatives(), relevance + 0.03, false, event, "alt");
+                        delete actionNode;
+                        continue;
+                    }
+                    if (IsFailureBackedOff(action, event, ACTION_RESULT_FAILED))
+                    {
+                        suppressedFailedActions.fetch_add(1, std::memory_order_relaxed);
+                        if (collectDiagnostics)
+                            ++diagnosticSample.suppressedFailed;
+                        if (CombatDiagnostics::Select(ai))
+                            CombatDiagnostics::Record(ai, action->getName(), event.getSource(), "suppressed_failed", 0);
+                        MultiplyAndPush(actionNode->getAlternatives(), relevance + 0.03, false, event, "alt");
+                        delete actionNode;
+                        continue;
+                    }
+
                     if (std::find(modifiedActions.begin(), modifiedActions.end(), action) == modifiedActions.end())
                     {
                         for (std::list<Multiplier*>::iterator i = multipliers.begin(); i != multipliers.end(); i++)
@@ -220,50 +471,59 @@ bool Engine::DoNextAction(Unit* unit, int depth, bool minimal, bool isStunned)
                         }
                     }
 
+                    // A strategy veto also vetoes its prerequisites and alternatives.
+                    // Negative default relevance is intentional; only zero means blocked.
+                    if (!relevance)
+                    {
+                        delete actionNode;
+                        continue;
+                    }
+
                     ActionBasket* peekAction = queue.Peek();
                     if (relevance < oldRelevance && peekAction && peekAction->getRelevance() > relevance) //Relevance changed. Try again.
                     {
                         modifiedActions.push_back(action);
-                        PushAgain(actionNode, relevance, event);
+                        // Reordering is not proof that prerequisites have run.
+                        PushAgain(actionNode, relevance, event, skipPrerequisites);
                         continue;
                     }
 
                     if (!skipPrerequisites)
                     {
                         LogAction("A:%s - PREREQ", action->getName().c_str());
-                        if (MultiplyAndPush(actionNode->getPrerequisites(), relevance + 0.02, false, event, "prereq"))
+                        float prerequisiteRelevance = relevance;
+                        if (ai->GetBot()->getClass() == CLASS_WARRIOR)
+                            if (auto spellAction = dynamic_cast<CastSpellAction*>(action))
+                            {
+                                const auto spell = sServerFacade.LookupSpellInfo(spellAction->GetDecisionSpellId());
+                                if (CanPlanWarriorSpell(ai, action->getName(), action->GetTarget()) &&
+                                    !WarriorStancePrerequisite(ai, spell).empty())
+                                    prerequisiteRelevance = std::max(relevance, float(ACTION_MOVE + 1));
+                            }
+                        if (MultiplyAndPush(actionNode->getPrerequisites(), prerequisiteRelevance + 0.02, false, event, "prereq"))
                         {
-                            PushAgain(actionNode, relevance + 0.01, event);
+                            PushAgain(actionNode, prerequisiteRelevance + 0.01, event);
                             continue;
                         }
                     }
 
                     auto pmo3 = sPerformanceMonitor.start(PERF_MON_ACTION, "isPossible", ai);
+            MANTECH_DIAG_BEGIN(devDiagPmo3,BotPossible,32,actionName.c_str());
                     bool isPossible = action->isPossible();
+                    MANTECH_DIAG_END(devDiagPmo3);
                     pmo3.reset();
 
                     if (isPossible && relevance)
                     {
                         auto pmo4 = sPerformanceMonitor.start(PERF_MON_ACTION, "Execute", ai);
-                        uint32 reactionStart = WorldTimer::getMSTime();
+            MANTECH_DIAG_BEGIN(devDiagPmo4,BotExecute,32,actionName.c_str());
                         actionExecuted = ListenAndExecute(action, event);
-                        uint32 reactionElapsed = WorldTimer::getMSTimeDiff(reactionStart, WorldTimer::getMSTime());
+                        if (sPlayerbotAIConfig.incidentHistory)
+                            BotIncidentHistory::ActionResult(ai, action->getName(), actionExecuted);
+                        if (CombatDiagnostics::Select(ai))
+                            CombatDiagnostics::Record(ai, action->getName(), event.getSource(), "action_execute", actionExecuted ? 1 : 0);
+                        MANTECH_DIAG_END(devDiagPmo4);
                         pmo4.reset();
-
-                        if (actionExecuted && sPlayerbotAIConfig.hasLog("bot_reactions.csv"))
-                        {
-                            std::ostringstream out;
-                            out << sPlayerbotAIConfig.GetTimestampStr() << "+00,";
-                            out << ai->GetBot()->GetName() << ",";
-                            out << (event.getSource().empty() ? "default" : event.getSource()) << ",";
-                            out << std::fixed << std::setprecision(2) << relevance << ",";
-                            out << actionName << ",";
-                            out << reactionElapsed << ",";
-                            out << (ai->GetBot()->IsInCombat() ? "combat" : "non-combat") << ",";
-                            WorldPosition(ai->GetBot()).printWKT(out);
-
-                            sPlayerbotAIConfig.log("bot_reactions.csv", out.str().c_str());
-                        }
 
 #ifdef PLAYERBOT_ELUNA
                         // used by eluna    
@@ -273,6 +533,9 @@ bool Engine::DoNextAction(Unit* unit, int depth, bool minimal, bool isStunned)
 
                         if (actionExecuted)
                         {
+                            if (collectDiagnostics)
+                                ++diagnosticSample.ok;
+                            ClearFailures(action, event);
                             LogAction("A:%s - OK", action->getName().c_str());
                             MultiplyAndPush(actionNode->getContinuers(), 0, false, event, "cont");
                             lastRelevance = relevance;
@@ -281,12 +544,22 @@ bool Engine::DoNextAction(Unit* unit, int depth, bool minimal, bool isStunned)
                         }
                         else
                         {
+                            if (collectDiagnostics)
+                                ++diagnosticSample.failed;
+                            sPlayerbotDiagnostics.RecordFailure(action->getName(), event.getSource(), PlayerbotDiagnosticOutcome::Failed);
+                            RecordFailure(action, event, ACTION_RESULT_FAILED);
                             LogAction("A:%s - FAILED", action->getName().c_str());
                             MultiplyAndPush(actionNode->getAlternatives(), relevance + 0.03, false, event, "alt");
                         }
                     }
                     else
                     {
+                        if (collectDiagnostics)
+                            ++diagnosticSample.impossible;
+                        sPlayerbotDiagnostics.RecordFailure(action->getName(), event.getSource(), PlayerbotDiagnosticOutcome::Impossible);
+                        if (CombatDiagnostics::Select(ai))
+                            CombatDiagnostics::Record(ai, action->getName(), event.getSource(), "action_impossible", 0);
+                        RecordFailure(action, event, ACTION_RESULT_IMPOSSIBLE);
                         if (sPlayerbotAIConfig.CanLogAction(ai, actionNode->getName(), false, ""))
                         {
                             std::ostringstream out;
@@ -301,9 +574,6 @@ bool Engine::DoNextAction(Unit* unit, int depth, bool minimal, bool isStunned)
                                 out << " [" << event.getSource() << "]";
 
                             ai->TellPlayerNoFacing(ai->GetMaster() ? ai->GetMaster() : ai->GetBot(), out, PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, true, false);
-
-                            if (sPlayerbotAIConfig.hasLog("bot_events.csv"))
-                                sPlayerbotAIConfig.logEvent(ai, "try", action->getName(), "impossible r=" + std::to_string(action->getRelevance()));
                         }
                         LogAction("A:%s - IMPOSSIBLE", action->getName().c_str());
                         MultiplyAndPush(actionNode->getAlternatives(), relevance + 0.03, false, event, "alt");
@@ -311,6 +581,10 @@ bool Engine::DoNextAction(Unit* unit, int depth, bool minimal, bool isStunned)
                 }
                 else
                 {
+                    if (collectDiagnostics)
+                        ++diagnosticSample.useless;
+                    if (CombatDiagnostics::Select(ai))
+                        CombatDiagnostics::Record(ai, action->getName(), event.getSource(), "action_useless", 0);
                     if (sPlayerbotAIConfig.CanLogAction(ai, actionNode->getName(), false, ""))
                     {
                         std::ostringstream out;
@@ -325,12 +599,11 @@ bool Engine::DoNextAction(Unit* unit, int depth, bool minimal, bool isStunned)
                             out << " [" << event.getSource() << "]";
 
                         ai->TellPlayerNoFacing(ai->GetMaster() ? ai->GetMaster() : ai->GetBot(), out, PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, true, false);
-
-                        if (sPlayerbotAIConfig.hasLog("bot_events.csv"))
-                            sPlayerbotAIConfig.logEvent(ai, "try", action->getName(), "useless r=" + std::to_string(action->getRelevance()));
                     }
                     lastRelevance = relevance;
                     LogAction("A:%s - USELESS", action->getName().c_str());
+                    if ((!isStunned || action->isUsefulWhenStunned()) && action->ShouldTryAlternativesWhenUseless())
+                        MultiplyAndPush(actionNode->getAlternatives(), relevance + 0.03, false, event, "alt");
                 }
             }
             delete actionNode;
@@ -365,43 +638,15 @@ bool Engine::DoNextAction(Unit* unit, int depth, bool minimal, bool isStunned)
         LogAction("no actions executed");
 
     queue.RemoveExpired();
-    return actionExecuted;
-}
-
-void Engine::ReleaseExternalEvent(const std::string& source)
-{
-    auto it = unhandledExternalEvents.find(source);
-    if (it == unhandledExternalEvents.end())
-        return;
-
-    it->second->Reset();
-    unhandledExternalEvents.erase(it);
-}
-
-void Engine::PruneUnhandledExternalEvents()
-{
-    for (auto it = unhandledExternalEvents.begin(); it != unhandledExternalEvents.end();)
+    if (collectDiagnostics)
     {
-        bool held = false;
-        for (std::list<TriggerNode*>::iterator i = triggers.begin(); i != triggers.end(); i++)
-        {
-            if ((*i)->getName() == it->first)
-            {
-                held = true;
-                break;
-            }
-        }
-
-        // Its node is gone (strategy teardown), so nothing can ever release it again - hand the
-        // trigger back rather than let the armed state suppress later packets of the same opcode.
-        if (!held)
-        {
-            it->second->Reset();
-            it = unhandledExternalEvents.erase(it);
-        }
-        else
-            ++it;
+        diagnosticSample.queueEnd = static_cast<uint32>(queue.Size());
+        diagnosticSample.actionExecuted = actionExecuted;
+        diagnosticSample.durationUs = static_cast<uint64>(std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - diagnosticStart).count());
+        sPlayerbotDiagnostics.RecordEngineSample(diagnosticSample);
     }
+    return actionExecuted;
 }
 
 ActionNode* Engine::CreateActionNode(const std::string& name)
@@ -508,7 +753,8 @@ ActionResult Engine::ExecuteAction(const std::string& name, Event& event)
                     bool executionResult = ListenAndExecute(action, event);
                     pmo4.reset();
 
-                    MultiplyAndPush(action->getContinuers(), 0.0f, false, event, "default");
+                    if (executionResult)
+                        MultiplyAndPush(action->getContinuers(), 0.0f, false, event, "default");
                     actionResult = executionResult ? ACTION_RESULT_OK : ACTION_RESULT_FAILED;
                 }
                 else
@@ -664,7 +910,9 @@ void Engine::ProcessTriggers(bool minimal)
             if (minimal && node->getFirstRelevance() < 100)
                 continue;
             auto pmo = sPerformanceMonitor.start(PERF_MON_TRIGGER, trigger->getName(), ai);
+            MANTECH_DIAG_BEGIN(devDiagTrigger,BotTrigger,32,trigger->getName().c_str());
             Event event = trigger->Check();
+            MANTECH_DIAG_END(devDiagTrigger);
 
 #ifdef PLAYERBOT_ELUNA
             // used by eluna    
@@ -675,13 +923,7 @@ void Engine::ProcessTriggers(bool minimal)
             if (!event)
                 continue;
 
-            // An external (packet) event is a one-shot obligation: keep the trigger armed until its
-            // action has had its turn, so a basket that loses this tick or is dropped from the queue
-            // is re-pushed instead of being silently lost. Only arm it when the event actually made
-            // it into the queue - a handler list with nothing pushable must not leave it armed.
-            if (MultiplyAndPush(node->getHandlers(), 0.0f, false, event, "trigger") && trigger->IsExternalEvent())
-                unhandledExternalEvents[trigger->getName()] = trigger;
-
+            MultiplyAndPush(node->getHandlers(), 0.0f, false, event, "trigger");
             LogAction("T:%s - %f", trigger->getName().c_str(), node->getFirstRelevance());
         }
     }
@@ -689,14 +931,7 @@ void Engine::ProcessTriggers(bool minimal)
     for (std::list<TriggerNode*>::iterator i = triggers.begin(); i != triggers.end(); i++)
     {
         Trigger* trigger = (*i)->getTrigger();
-        if (!trigger)
-            continue;
-
-        // Deliberately left armed: its event has not reached an action yet (see above).
-        if (unhandledExternalEvents.find(trigger->getName()) != unhandledExternalEvents.end())
-            continue;
-
-        trigger->Reset();
+        if (trigger) trigger->Reset();
     }
 }
 
@@ -733,12 +968,12 @@ std::list<std::string_view> Engine::GetStrategies()
     return result;
 }
 
-void Engine::PushAgain(ActionNode* actionNode, float relevance, const Event& event)
+void Engine::PushAgain(ActionNode* actionNode, float relevance, const Event& event, bool skipPrerequisites)
 {
     NextAction** nextAction = new NextAction*[2];
     nextAction[0] = new NextAction(actionNode->getName(), relevance);
     nextAction[1] = NULL;
-    MultiplyAndPush(nextAction, relevance, true, event, "again");
+    MultiplyAndPush(nextAction, relevance, skipPrerequisites, event, "again");
     delete actionNode;
 }
 
@@ -772,12 +1007,20 @@ Action* Engine::InitializeAction(ActionNode* actionNode)
 
 bool Engine::ListenAndExecute(Action* action, Event& event)
 {
+    if (!event.IsOwnerAvailable())
+        return false;
+
     bool actionExecuted = false;
     Action* prevExecutedAction = lastExecutedAction;
     if (actionExecutionListeners.Before(action, event))
     {
         ai->SetLastEvent(event);
+        const auto executionStart = std::chrono::steady_clock::now();
         actionExecuted = actionExecutionListeners.AllowExecution(action, event) ? action->Execute(event) : true;
+        const auto executionMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - executionStart).count();
+        if (executionMs >= 50 && sPlayerbotDiagnostics.IsEnabled())
+            sLog.outPerformance("SLOW_BOT_ACTION elapsed=%llu ms action=%s bot=%u map=%u instance=%u success=%u",
+                static_cast<unsigned long long>(executionMs), action->getName().c_str(), ai->GetBot()->GetGUIDLow(), ai->GetBot()->GetMapId(), ai->GetBot()->GetInstanceId(), actionExecuted ? 1 : 0);
         if (actionExecuted)
         {
             ai->SetActionDuration(action);
@@ -812,21 +1055,6 @@ bool Engine::ListenAndExecute(Action* action, Event& event)
         }
 
         ai->TellPlayerNoFacing(ai->GetMaster() ? ai->GetMaster() : ai->GetBot(), out, PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, true, false);
-
-        if (sPlayerbotAIConfig.hasLog("bot_events.csv"))
-        {
-            std::ostringstream info;
-            info << "r=" << std::fixed << std::setprecision(2) << action->getRelevance();
-            if (!event.getSource().empty())
-                info << " [" << event.getSource() << "]";
-            const uint32 actionDuration = action->GetDuration();
-            if (actionDuration > 0)
-                info << " dur=" << ((float)actionDuration / static_cast<float>(IN_MILLISECONDS)) << "s";
-            if (!actionExecuted)
-                info << " (not executed)";
-
-            sPlayerbotAIConfig.logEvent(ai, "do", action->getName(), info.str());
-        }
     }
 
     if (ai->HasStrategy("debug threat", BotState::BOT_STATE_NON_COMBAT))

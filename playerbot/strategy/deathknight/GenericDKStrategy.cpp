@@ -144,7 +144,25 @@ GenericDKStrategy::GenericDKStrategy(PlayerbotAI* ai) : CombatStrategy(ai)
 
 void GenericDKStrategy::InitCombatTriggers(std::list<TriggerNode*> &triggers)
 {
+#if defined(MANGOSBOT_TWO)
+
+    triggers.push_back(new TriggerNode("very often", NextAction::array(0, new NextAction("lichborne", ACTION_DISPEL), nullptr)));
+#endif
+
 	CombatStrategy::InitCombatTriggers(triggers);
+
+    // PvP control complements the shared damage rotation. Native checks retain
+    // range, resource, immunity and cooldown restrictions.
+    if (ai->HasStrategy("pvp", BotState::BOT_STATE_COMBAT))
+    {
+        triggers.push_back(new TriggerNode("chains of ice",
+            NextAction::array(0, new NextAction("chains of ice", ACTION_INTERRUPT), NULL)));
+        triggers.push_back(new TriggerNode("strangulate",
+            NextAction::array(0, new NextAction("strangulate", ACTION_INTERRUPT), NULL)));
+        triggers.push_back(new TriggerNode("strangulate on enemy healer",
+            NextAction::array(0, new NextAction("strangulate on enemy healer", ACTION_INTERRUPT), NULL)));
+    }
+
 
 	triggers.push_back(new TriggerNode(
 		"melee high aoe",
@@ -165,7 +183,7 @@ void GenericDKStrategy::InitCombatTriggers(std::list<TriggerNode*> &triggers)
 
     triggers.push_back(new TriggerNode(
         "mind freeze",
-        NextAction::array(0, new NextAction("mind freeze", ACTION_HIGH + 1), NULL)));
+        NextAction::array(0, new NextAction("mind freeze", ACTION_INTERRUPT + 1), NULL)));
 
     triggers.push_back(new TriggerNode(
         "bone shield",
@@ -177,7 +195,7 @@ void GenericDKStrategy::InitCombatTriggers(std::list<TriggerNode*> &triggers)
 
     triggers.push_back(new TriggerNode(
         "mind freeze on enemy healer",
-        NextAction::array(0, new NextAction("mind freeze on enemy healer", ACTION_HIGH + 1), NULL)));
+        NextAction::array(0, new NextAction("mind freeze on enemy healer", ACTION_INTERRUPT + 1), NULL)));
 
 	triggers.push_back(new TriggerNode(
 		"enemy out of melee",
@@ -197,7 +215,7 @@ void GenericDKStrategy::InitCombatTriggers(std::list<TriggerNode*> &triggers)
 
 	triggers.push_back(new TriggerNode(
 		"icy touch on attacker",
-		NextAction::array(0, new NextAction("icy touch", ACTION_HIGH + 1), NULL)));
+        NextAction::array(0, new NextAction("icy touch on attacker", ACTION_HIGH + 1), NULL)));
 
 	triggers.push_back(new TriggerNode(
 		"icy touch",
@@ -209,27 +227,26 @@ void GenericDKStrategy::InitCombatTriggers(std::list<TriggerNode*> &triggers)
 
 	triggers.push_back(new TriggerNode(
 		"plague strike on attacker",
-		NextAction::array(0, new NextAction("plague strike", ACTION_HIGH + 1), NULL)));
+        NextAction::array(0, new NextAction("plague strike on attacker", ACTION_HIGH + 1), NULL)));
 
 	triggers.push_back(new TriggerNode(
 		"melee high aoe",
 		NextAction::array(0,
-			new NextAction("unholy blight", ACTION_NORMAL + 6),
 			new NextAction("death and decay", ACTION_NORMAL + 5),
-			new NextAction("pestilence", ACTION_NORMAL + 4),
+            new NextAction("pestilence", ACTION_HIGH + 2),
 			new NextAction("blood boil", ACTION_NORMAL + 3), NULL)));
 
 	triggers.push_back(new TriggerNode(
 		"melee medium aoe",
 		NextAction::array(0,
 			new NextAction("death and decay", ACTION_NORMAL + 5),
-			new NextAction("pestilence", ACTION_NORMAL + 4),
+            new NextAction("pestilence", ACTION_HIGH + 2),
 			new NextAction("blood boil", ACTION_NORMAL + 3), NULL)));
 
 	triggers.push_back(new TriggerNode("melee light aoe",
 		NextAction::array(0,
 			new NextAction("howling blast", ACTION_NORMAL + 5),
-			new NextAction("pestilence", ACTION_NORMAL + 4),
-			new NextAction("hearth strike", ACTION_NORMAL + 3),
+            new NextAction("pestilence", ACTION_HIGH + 2),
+            new NextAction("heart strike", ACTION_NORMAL + 3),
 			new NextAction("blood boil", ACTION_NORMAL + 3), NULL)));
 }

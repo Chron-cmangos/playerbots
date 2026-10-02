@@ -110,7 +110,15 @@ bool PlayerbotAIConfig::Initialize()
     expireActionTime = config.GetIntDefault("AiPlayerbot.ExpireActionTime", 5000);
     dispelAuraDuration = config.GetIntDefault("AiPlayerbot.DispelAuraDuration", 2000);
     reactDelay = (uint32) config.GetIntDefault("AiPlayerbot.ReactDelay", 100);
+    pathFailureRetryMs = std::max<uint32>(250, (uint32)config.GetIntDefault("AiPlayerbot.PathFailureRetryMs", 3000));
     passiveDelay = (uint32) config.GetIntDefault("AiPlayerbot.PassiveDelay", 4000);
+    valueCacheCleanupInterval = (uint32) config.GetIntDefault("AiPlayerbot.ValueCacheCleanupInterval", 60000);
+    failedActionRetryBase = (uint32) config.GetIntDefault("AiPlayerbot.FailedActionRetryBase", 250);
+    failedActionRetryMax = (uint32) config.GetIntDefault("AiPlayerbot.FailedActionRetryMax", 2000);
+    failedActionRetryBase = std::max<uint32>(50, failedActionRetryBase);
+    failedActionRetryMax = std::max<uint32>(failedActionRetryBase, failedActionRetryMax);
+    failedActionCacheTtl = (uint32) std::max<int32>(1000, config.GetIntDefault("AiPlayerbot.FailedActionCacheTtl", 30000));
+    failedActionCacheMaxEntries = (uint32) std::max<int32>(8, config.GetIntDefault("AiPlayerbot.FailedActionCacheMaxEntries", 64));
     repeatDelay = (uint32) config.GetIntDefault("AiPlayerbot.RepeatDelay", 5000);
     errorDelay = (uint32) config.GetIntDefault("AiPlayerbot.ErrorDelay", 5000);
     rpgDelay = (uint32) config.GetIntDefault("AiPlayerbot.RpgDelay", 3000);
@@ -186,7 +194,7 @@ bool PlayerbotAIConfig::Initialize()
     jumpChase = config.GetBoolDefault("AiPlayerbot.JumpChase", true);
     useKnockback = config.GetBoolDefault("AiPlayerbot.UseKnockback", true);
 
-    iterationsPerTick = config.GetIntDefault("AiPlayerbot.IterationsPerTick", 100);
+    iterationsPerTick = config.GetIntDefault("AiPlayerbot.IterationsPerTick", 10);
 
     allowGuildBots = config.GetBoolDefault("AiPlayerbot.AllowGuildBots", true);
     allowMultiAccountAltBots = config.GetBoolDefault("AiPlayerbot.AllowMultiAccountAltBots", true);
@@ -236,6 +244,34 @@ bool PlayerbotAIConfig::Initialize()
     randomBotTeleportMaxInterval = config.GetIntDefault("AiPlayerbot.RandomBotTeleportTeleportMaxInterval", 48 * 3600);
     randomBotsMaxLoginsPerInterval = config.GetIntDefault("AiPlayerbot.RandomBotsMaxLoginsPerInterval", 10);
     randomBotsPerInterval = config.GetIntDefault("AiPlayerbot.RandomBotsPerInterval", 0);
+    randomBotManagerBudgetMs = std::max<int32>(1, config.GetIntDefault("AiPlayerbot.RandomBotManagerBudgetMs", 10));
+    randomBotManagerScanLimit = std::max<int32>(1, config.GetIntDefault("AiPlayerbot.RandomBotManagerScanLimit", 512));
+    randomBotLoginDbQueueLimit = std::max<int32>(16, config.GetIntDefault("AiPlayerbot.RandomBotLoginDbQueueLimit", 256));
+    randomBotDatabasePingInterval = std::max<int32>(1000, config.GetIntDefault("AiPlayerbot.RandomBotDatabasePingInterval", 10000));
+    performanceMapScanInterval = std::max<int32>(1000, config.GetIntDefault("AiPlayerbot.PerformanceMapScanInterval", 30000));
+    unreachableTargetRecovery = config.GetBoolDefault("AiPlayerbot.Reliability.UnreachableTargets", false);
+    dungeonCorpseRecovery = config.GetBoolDefault("AiPlayerbot.Reliability.DungeonCorpse", false);
+    explicitBodyPull = config.GetBoolDefault("AiPlayerbot.Reliability.BodyPull", false);
+    partyCommandCoordinator = config.GetBoolDefault("AiPlayerbot.Reliability.PartyCommands", false);
+    incidentHistory = config.GetBoolDefault("AiPlayerbot.Reliability.IncidentHistory", false);
+    diagnosticsEnabled = config.GetBoolDefault("AiPlayerbot.Diagnostics.Enabled", false);
+    diagnosticsMode = std::min<uint32>(2, std::max<int32>(0,
+        config.GetIntDefault("AiPlayerbot.Diagnostics.Mode", diagnosticsEnabled ? 2 : 0)));
+    diagnosticsEnabled = diagnosticsMode > 0;
+    diagnosticsInterval = std::max<int32>(1000, config.GetIntDefault("AiPlayerbot.Diagnostics.Interval", diagnosticsMode == 1 ? 300000 : 30000));
+    diagnosticsEngineSampleRate = std::max<int32>(1, config.GetIntDefault("AiPlayerbot.Diagnostics.EngineSampleRate", diagnosticsMode == 1 ? 64 : 16));
+    diagnosticsTopFailures = std::max<int32>(1, config.GetIntDefault("AiPlayerbot.Diagnostics.TopFailures", 10));
+    diagnosticsMaxFailureKeys = std::max<int32>(1, config.GetIntDefault("AiPlayerbot.Diagnostics.MaxFailureKeys", 2048));
+    diagnosticsLogFile = config.GetStringDefault("AiPlayerbot.Diagnostics.LogFile", "PlayerbotDiagnostics.log");
+    combatDiagnosticsEnabled = config.GetBoolDefault("AiPlayerbot.CombatDiagnostics.Enabled", false);
+    combatDiagnosticsSampleRate = std::max<int32>(1, config.GetIntDefault("AiPlayerbot.CombatDiagnostics.SampleRate", 16));
+    combatDiagnosticsClassMask = uint32(config.GetIntDefault("AiPlayerbot.CombatDiagnostics.ClassMask", 4094)) & 4094;
+    combatDiagnosticsTraceBot = std::max<int32>(0, config.GetIntDefault("AiPlayerbot.CombatDiagnostics.TraceBot", 0));
+    combatDiagnosticsMaxKeys = std::min<int32>(4096, std::max<int32>(16, config.GetIntDefault("AiPlayerbot.CombatDiagnostics.MaxKeys", 2048)));
+    combatDiagnosticsMaxTraces = std::min<int32>(1024, std::max<int32>(0, config.GetIntDefault("AiPlayerbot.CombatDiagnostics.MaxTraces", 128)));
+    combatDiagnosticsMaxFileMB = std::min<int32>(64, std::max<int32>(1, config.GetIntDefault("AiPlayerbot.CombatDiagnostics.MaxFileMB", 8)));
+    if (diagnosticsLogFile.empty())
+        diagnosticsLogFile = "PlayerbotDiagnostics.log";
     minRandomBotsPriceChangeInterval = config.GetIntDefault("AiPlayerbot.MinRandomBotsPriceChangeInterval", 2 * 3600);
     maxRandomBotsPriceChangeInterval = config.GetIntDefault("AiPlayerbot.MaxRandomBotsPriceChangeInterval", 48 * 3600);
     //Auction house settings
@@ -606,14 +642,14 @@ bool PlayerbotAIConfig::Initialize()
     broadcastChanceSuggestToxicLinks = config.GetIntDefault("AiPlayerbot.BroadcastChanceSuggestToxicLinks", 0);
     toxicLinksPrefix = config.GetStringDefault("AiPlayerbot.ToxicLinksPrefix", "gnomes");
 
-    broadcastChanceSuggestThunderfury = config.GetIntDefault("AiPlayerbot.BroadcastChanceSuggestThunderfury", 1);
+    broadcastChanceSuggestThunderfury = config.GetIntDefault("AiPlayerbot.BroadcastChanceSuggestThunderfury", 0);
 
     //does not depend on global chance
     broadcastChanceGuildManagement = config.GetIntDefault("AiPlayerbot.BroadcastChanceGuildManagement", 30000);
     ////////////////////////////
 
     toxicLinksRepliesChance = config.GetIntDefault("AiPlayerbot.ToxicLinksRepliesChance", 30); //0-100
-    thunderfuryRepliesChance = config.GetIntDefault("AiPlayerbot.ThunderfuryRepliesChance", 40); //0-100
+    thunderfuryRepliesChance = config.GetIntDefault("AiPlayerbot.ThunderfuryRepliesChance", 0); //0-100
     guildRepliesRate = config.GetIntDefault("AiPlayerbot.GuildRepliesRate", 100); //0-100
 
     botAcceptDuelMinimumLevel = config.GetIntDefault("AiPlayerbot.BotAcceptDuelMinimumLevel", 10);
@@ -622,9 +658,9 @@ bool PlayerbotAIConfig::Initialize()
 
     boostFollow = config.GetBoolDefault("AiPlayerbot.BoostFollow", false);
     turnInRpg = config.GetBoolDefault("AiPlayerbot.TurnInRpg", false);
-    shareTargets = config.GetBoolDefault("AiPlayerbot.ShareTargets", true);
     globalSoundEffects = config.GetBoolDefault("AiPlayerbot.GlobalSoundEffects", false);
     nonGmFreeSummon = config.GetBoolDefault("AiPlayerbot.NonGmFreeSummon", false);
+    recruitmentRevive = config.GetBoolDefault("AiPlayerbot.Recruitment.Revive", true);
 
     //SPP automation
     autoPickReward = config.GetStringDefault("AiPlayerbot.AutoPickReward", "no");
@@ -638,6 +674,7 @@ bool PlayerbotAIConfig::Initialize()
     autoLearnQuestSpells = config.GetBoolDefault("AiPlayerbot.AutoLearnQuestSpells", false);
     autoLearnDroppedSpells = config.GetBoolDefault("AiPlayerbot.AutoLearnDroppedSpells", false);
     autoDoQuests = config.GetBoolDefault("AiPlayerbot.AutoDoQuests", true);
+    autonomousTravel = config.GetBoolDefault("AiPlayerbot.AutonomousTravel", true);
     syncLevelWithPlayers = config.GetBoolDefault("AiPlayerbot.SyncLevelWithPlayers", false);
     syncLevelMaxAbove = config.GetIntDefault("AiPlayerbot.SyncLevelMaxAbove", 5);
     syncLevelNoPlayer = config.GetIntDefault("AiPlayerbot.SyncLevelNoPlayer", randombotStartingLevel);
@@ -745,7 +782,7 @@ bool PlayerbotAIConfig::Initialize()
         llmBlockedReplyChannels.insert(sourceName[channelName]);
 
     {
-        std::string promptsFile = config.GetStringDefault("AiPlayerbot.LLMDefaultPromptsFile", "llm_character_card");
+        std::string promptsFile = config.GetStringDefault("AiPlayerbot.LLMDefaultPromptsFile", "");
         LoadLLMDefaultPrompts(promptsFile);
     }
 
@@ -811,10 +848,10 @@ bool PlayerbotAIConfig::Initialize()
 
     LoadTalentSpecs();
 
-    if (sPlayerbotAIConfig.autoDoQuests)
+    if (sPlayerbotAIConfig.autoDoQuests || sPlayerbotAIConfig.autonomousTravel)
     {
-        sLog.outString("Loading Quest Detail Data...");
-        sTravelMgr.LoadQuestTravelTable();
+        sLog.outString("Loading travel destinations (quest destinations: %s)...", autoDoQuests ? "enabled" : "disabled");
+        sTravelMgr.LoadQuestTravelTable(autoDoQuests);
     }
 
     sLog.outString("Loading named locations...");
@@ -822,6 +859,11 @@ bool PlayerbotAIConfig::Initialize()
 
     if (sPlayerbotAIConfig.randomBotJoinBG)
         sRandomPlayerbotMgr.LoadBattleMastersCache();
+
+    sLog.outString("ARCH3_PLAYERBOT_CONFIG enabled=%u bots_min=%u bots_max=%u react_ms=%u path_retry_ms=%u failure_retry_ms=%u/%u failure_ttl_ms=%u failure_entries=%u login_db_limit=%u diagnostics_mode=%u diagnostics_interval_ms=%u diagnostics_sample=%u",
+        enabled ? 1u : 0u, minRandomBots, maxRandomBots, reactDelay, pathFailureRetryMs,
+        failedActionRetryBase, failedActionRetryMax, failedActionCacheTtl, failedActionCacheMaxEntries,
+        randomBotLoginDbQueueLimit, diagnosticsMode, diagnosticsInterval, diagnosticsEngineSampleRate);
 
     sLog.outString("---------------------------------------");
     sLog.outString("        AI Playerbot initialized       ");
@@ -1032,12 +1074,12 @@ bool PlayerbotAIConfig::openLog(std::string fileName, char const* mode, bool has
 
 
     file = fopen((m_logsDir + fileName).c_str(), mode);
-    fileOpen = true;
+    fileOpen = file != nullptr;
 
     logFileIt->second.first = file;
     logFileIt->second.second = fileOpen;
 
-    return true;
+    return fileOpen;
 }
 
 void PlayerbotAIConfig::log(std::string fileName, const char* str, ...)
@@ -1052,6 +1094,8 @@ void PlayerbotAIConfig::log(std::string fileName, const char* str, ...)
             return;
 
     FILE* file = logFiles.find(fileName)->second.first;
+    if (!file)
+        return;
 
     va_list ap;
     va_start(ap, str);
@@ -1249,6 +1293,9 @@ void PlayerbotAIConfig::LoadTalentSpecs()
 
 void PlayerbotAIConfig::LoadLLMDefaultPrompts(const std::string& fileName)
 {
+    if (fileName.empty())
+        return; // Optional file import disabled; inline prompts and stored personalities remain.
+
     std::ifstream file(fileName);
     if (!file.is_open())
     {
@@ -1286,7 +1333,9 @@ void PlayerbotAIConfig::LoadLLMDefaultPrompts(const std::string& fileName)
             continue;
         }
 
-        auto result = CharacterDatabase.PQuery("SELECT guid FROM characters WHERE name = '%s' LIMIT 1", name.c_str());
+        std::string escapedName = name;
+        CharacterDatabase.escape_string(escapedName);
+        auto result = CharacterDatabase.PQuery("SELECT guid FROM characters WHERE name = '%s' LIMIT 1", escapedName.c_str());
         if (!result)
         {
             sLog.outError("Character '%s' not found in characters DB while loading '%s'.", name.c_str(), fileName.c_str());
