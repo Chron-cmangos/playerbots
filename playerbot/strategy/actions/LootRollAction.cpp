@@ -293,14 +293,6 @@ bool AutoLootRollAction::Execute(Event& event)
 {
     LootRollMap lootRolls = AI_VALUE(LootRollMap, "active rolls");
 
-    // Packet timing can leave completed rolls in the manual value briefly.  Clean
-    // them before selecting an entry and never form the size()-1 random range for
-    // an empty set.
-    ActiveRolls::CleanUp(bot, lootRolls);
-    SET_AI_VALUE(LootRollMap, "active rolls", lootRolls);
-    if (!bot->GetGroup() || lootRolls.empty() || AI_VALUE(uint8, "bag space") >= 100)
-        return false;
-
     auto currentRoll = lootRolls.begin();
 
     currentRoll = std::next(currentRoll, urand(0, lootRolls.size() - 1));
@@ -317,11 +309,5 @@ bool AutoLootRollAction::Execute(Event& event)
 
 bool AutoLootRollAction::isPossible()
 {
-    if (!bot->GetGroup() || AI_VALUE(uint8, "bag space") >= 100)
-        return false;
-
-    LootRollMap lootRolls = AI_VALUE(LootRollMap, "active rolls");
-    ActiveRolls::CleanUp(bot, lootRolls);
-    SET_AI_VALUE(LootRollMap, "active rolls", lootRolls);
-    return !lootRolls.empty();
+    return bot->GetGroup() && !AI_VALUE(LootRollMap, "active rolls").empty() && AI_VALUE(uint8, "bag space") < 100;
 }
