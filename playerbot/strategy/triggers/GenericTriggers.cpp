@@ -412,10 +412,6 @@ std::string TwoTriggers::getName()
 
 bool BoostTrigger::IsActive()
 {
-    const uint32 spellId = AI_VALUE2(uint32, "spell id", spell);
-    if (!spellId || !ai->HasSpell(spellId) || !bot->IsSpellReady(spellId))
-        return false;
-
     if (ai->IsStateActive(BotState::BOT_STATE_COMBAT) && BuffTrigger::IsActive())
     {
         if (!ai->HasRealPlayerMaster())
@@ -1004,8 +1000,6 @@ bool SpellTargetTrigger::IsActive()
 bool SpellTargetTrigger::IsTargetValid(Unit* target)
 {
     return target &&
-           bot->IsInMap(target) &&
-           sServerFacade.IsFriendlyTo(bot, target) &&
            ai->IsSafe(target) &&
            (bot == target || sServerFacade.GetDistance2d(bot, target) < sPlayerbotAIConfig.sightDistance) &&
            (bot->IsInGroup(target)) &&

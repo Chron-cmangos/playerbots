@@ -992,12 +992,9 @@ std::vector<WorldPosition> WorldPosition::getPathStepFrom(const WorldPosition& s
         end.CalculatePassengerOffset(bot->GetTransport());
     }
 
-    // A failed calculation must not reuse points left by an earlier attempt.
-    if (!pathfinder->calculate(start.getVector3(), end.getVector3(), false))
-        return {};
+    pathfinder->calculate(start.getVector3(), end.getVector3(), false);
 
-    if (points.empty())
-        return {};
+    points = pathfinder->getPath();
 
     if (bot && bot->GetTransport())
     {
@@ -1009,21 +1006,19 @@ std::vector<WorldPosition> WorldPosition::getPathStepFrom(const WorldPosition& s
 
     std::vector<WorldPosition> retvec = fromPointsArray(points);
 
-    if (!forceNormalPath && type == PATHFIND_INCOMPLETE)
+    if (type == PATHFIND_INCOMPLETE)
     {
         WorldPosition lastPoint = retvec.back();
-        // The returned points are in world space, including on transports.
-        const WorldPosition& worldEnd = *this;
 
-        float dist = lastPoint.distance(worldEnd);
+        float dist = lastPoint.distance(end);
 
-        if (dist < 50.0f && lastPoint.isUnderWater() && worldEnd.isUnderWater() && lastPoint.IsInLineOfSight(worldEnd))
+        if (lastPoint.distance(end) < 50.0f && lastPoint.isUnderWater() && end.isUnderWater() && lastPoint.IsInLineOfSight(end))
         {
             if (dist < 5.0f)
-                retvec.push_back(worldEnd);
+                retvec.push_back(end);
             else
             {
-                WorldPosition stepPoint = lastPoint + ((worldEnd - lastPoint) / dist * 5.0f);
+                WorldPosition stepPoint = lastPoint + ((end - lastPoint) / dist * 5.0f);
                 retvec.push_back(stepPoint);
             }
 

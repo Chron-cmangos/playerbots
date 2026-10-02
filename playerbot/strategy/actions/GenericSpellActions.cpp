@@ -2,8 +2,6 @@
 #include "playerbot/playerbot.h"
 #include "GenericActions.h"
 #include "UseItemAction.h"
-#include "EncounterSpellPolicy.h"
-#include "playerbot/strategy/Trigger.h"
 
 using namespace ai;
 
@@ -22,7 +20,6 @@ CastSpellAction::CastSpellAction(PlayerbotAI* ai, std::string spell)
 
 bool CastSpellAction::Execute(Event& event)
 {
-    RefreshSpellId();
     bool executed = false;
     uint32 spellDuration = sPlayerbotAIConfig.globalCoolDown;
     if (spellName == "conjure food" || spellName == "conjure water")
@@ -91,7 +88,6 @@ bool CastSpellAction::Execute(Event& event)
 
 bool CastSpellAction::isPossible()
 {
-    RefreshSpellId();
     if (!spellId || !sServerFacade.LookupSpellInfo(spellId))
         return false;
     
@@ -156,14 +152,6 @@ bool CastSpellAction::isPossible()
 
 bool CastSpellAction::isUseful()
 {
-    RefreshSpellId();
-    // Expansion-specific strategies can expose actions for spells this bot has
-    // not learned (or that do not exist in the current client data). Reject
-    // those static capability misses before target/range/cast evaluation. The
-    // cached HasSpell path is invalidated by spellbook/talent changes.
-    if (!spellId || !sServerFacade.LookupSpellInfo(spellId) || !ai->HasSpell(spellId))
-        return false;
-
     if (ai->IsInVehicle() && !ai->IsInVehicle(false, false, true))
         return false;
 
@@ -245,10 +233,9 @@ NextAction** CastSpellAction::getPrerequisites()
 
 void CastSpellAction::SetSpellName(const std::string& name, std::string spellIDContextName /*= "spell id"*/, bool force)
 {
-    if (force || spellName != name || spellIdContext != spellIDContextName)
+    if (force || spellName != name)
     {
         spellName = name;
-        spellIdContext = spellIDContextName;
         spellId = ai->GetAiObjectContext()->GetValue<uint32>(spellIDContextName, name)->Get();
 
         float spellRange;
@@ -257,13 +244,6 @@ void CastSpellAction::SetSpellName(const std::string& name, std::string spellIDC
             range = spellRange;
         }
     }
-}
-
-void CastSpellAction::RefreshSpellId()
-{
-    // Reuse the existing timed spell-ID value. An Action outlives training,
-    // respecs and pet changes; its constructor's ID is not a permanent capability.
-    spellId = ai->GetAiObjectContext()->GetValue<uint32>(spellIdContext, spellName)->Get();
 }
 
 Unit* CastSpellAction::GetTarget()
@@ -275,7 +255,6 @@ Unit* CastSpellAction::GetTarget()
 
 bool CastPetSpellAction::isPossible()
 {
-    RefreshSpellId();
     Unit* spellTarget = GetTarget();
     if (!spellTarget)
         return false;
@@ -549,25 +528,14 @@ bool InterruptCurrentSpellAction::isUseful()
 
 bool InterruptCurrentSpellAction::Execute(Event& event)
 {
-    const bool cancelOverheal = event.getSource() == "heal target full health";
-    if (cancelOverheal)
-    {
-        // An action can wait in the queue while health or the active cast changes.
-        Trigger* trigger = ai->GetAiObjectContext()->GetTrigger("heal target full health");
-        if (!trigger || !trigger->IsActive())
-            return false;
-    }
     bool interrupted = false;
     for (int type = CURRENT_MELEE_SPELL; type < CURRENT_CHANNELED_SPELL; type++)
     {
-        if (cancelOverheal && type != CURRENT_GENERIC_SPELL)
-            continue;
         Spell* currentSpell = bot->GetCurrentSpell((CurrentSpellTypes)type);
         if (currentSpell && currentSpell->CanBeInterrupted())
         {
-            const uint32 spellId = currentSpell->m_spellInfo->Id;
             bot->InterruptSpell((CurrentSpellTypes)type);
-            ai->SpellInterrupted(spellId);
+            ai->SpellInterrupted(currentSpell->m_spellInfo->Id);
             interrupted = true;
         }
     }
@@ -605,8 +573,6 @@ Unit* CastSpellTargetAction::GetTarget()
 bool CastSpellTargetAction::IsTargetValid(Unit* target)
 {
     return target &&
-           bot->IsInMap(target) &&
-           sServerFacade.IsFriendlyTo(bot, target) &&
            ai->IsSafe(target) &&
            (bot == target || sServerFacade.GetDistance2d(bot, target) < sPlayerbotAIConfig.sightDistance) &&
            bot->IsInGroup(target) &&

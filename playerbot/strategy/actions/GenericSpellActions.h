@@ -25,7 +25,6 @@ namespace ai
         const uint32& GetSpellID() const { return spellId; }
         const std::string& GetSpellName() const { return spellName; }
         void SetSpellName(const std::string& name, std::string spellIDContextName = "spell id", bool force = false);
-        void RefreshSpellId();
 
         Unit* GetTarget() override;
         virtual std::string GetTargetName() override { return "current target"; }
@@ -39,8 +38,7 @@ namespace ai
 
     private:
         std::string spellName;
-        uint32 spellId = 0;
-        std::string spellIdContext = "spell id";
+        uint32 spellId;
     };
 
     class CastPetSpellAction : public CastSpellAction

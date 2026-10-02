@@ -302,27 +302,13 @@ RandomPlayerbotMgr::RandomPlayerbotMgr()
         guildsDeleted = false;
         arenaTeamsDeleted = false;
 
-        const auto eventLoadStart = std::chrono::steady_clock::now();
-        sLog.outString("Loading saved random-bot events...");
         const std::vector<uint32>& availableBots = GetBots();
-        uint32 eventsLoaded = 0;
-        auto lastEventProgress = eventLoadStart;
 
         for (auto& bot : availableBots)
         {
             if(GetEventValue(bot,"login"))
                 SetEventValue(bot, "login", 0, 0);
-            ++eventsLoaded;
-            const auto now = std::chrono::steady_clock::now();
-            if (now - lastEventProgress >= std::chrono::seconds(5))
-            {
-                sLog.outString("Loading saved random-bot events: %u/%u bots (%.1f seconds elapsed)",
-                    eventsLoaded, uint32(availableBots.size()), std::chrono::duration<double>(now - eventLoadStart).count());
-                lastEventProgress = now;
-            }
         }
-        sLog.outString("Saved random-bot events loaded: %u bots in %.1f seconds", eventsLoaded,
-            std::chrono::duration<double>(std::chrono::steady_clock::now() - eventLoadStart).count());
 
 #ifndef MANGOSBOT_ZERO
         // load random bot team members
@@ -339,9 +325,7 @@ RandomPlayerbotMgr::RandomPlayerbotMgr()
         }
 #endif
         // sync event timers
-        sLog.outString("Synchronizing saved random-bot event timers...");
         SyncEventTimers();
-        sLog.outString("Saved random-bot event timers synchronized.");
 
         for (uint32 i = 0; i < sMapStore.GetNumRows(); ++i)
         {
@@ -712,9 +696,6 @@ void RandomPlayerbotMgr::UpdateAIInternal(uint32 elapsed, bool minimal)
     const std::vector<uint32>& availableBots = GetBots();
     uint32 availableBotCount = availableBots.size();
     uint32 onlineBotCount = GetPlayerbotsAmount();
-    const time_t loginNow = time(nullptr);
-    PrunePendingBotLogins(loginNow);
-    uint32 pendingLoginCount = static_cast<uint32>(pendingBotLogins.size());
     
     SetAIInternalUpdateDelay(sPlayerbotAIConfig.randomBotUpdateInterval);
 
@@ -779,13 +760,6 @@ void RandomPlayerbotMgr::UpdateAIInternal(uint32 elapsed, bool minimal)
     }
 
     uint32 maxLogins = sPlayerbotAIConfig.randomBotsMaxLoginsPerInterval;
-
-    // A submitted login does not enter playerBots until its query holder has
-    // completed. Count those in-flight requests against the configured target
-    // so consecutive manager passes cannot each admit another full batch.
-    uint32 admissionCapacity = maxAllowedBotCount > onlineBotCount + pendingLoginCount ?
-        maxAllowedBotCount - onlineBotCount - pendingLoginCount : 0;
-    maxLogins = std::min(maxLogins, admissionCapacity);
 
     // Admission control sheds only new background logins. Existing bots, real
     // players, groups, combat and instances remain untouched.
@@ -868,14 +842,9 @@ void RandomPlayerbotMgr::UpdateAIInternal(uint32 elapsed, bool minimal)
     }
 
     //Log in bots
-    if (sRandomPlayerbotMgr.GetDatabaseDelay("CharacterDatabase") < 10 * IN_MILLISECONDS && !sPlayerbotAIConfig.asyncBotLogin && admissionCapacity > 0 && maxLogins > 0)
+    if (sRandomPlayerbotMgr.GetDatabaseDelay("CharacterDatabase") < 10 * IN_MILLISECONDS && !sPlayerbotAIConfig.asyncBotLogin && onlineBotCount < maxAllowedBotCount && maxLogins > 0)
     {
-        // When only a handful of slots are open almost every candidate is
-        // already online. Continue the round-robin cursor over later passes
-        // instead of rescanning the complete 10K pool every second.
-        const size_t loginScanLimit = std::min<size_t>(availableBots.size(),
-            std::max<size_t>(256, static_cast<size_t>(maxLogins) * 64));
-        diagnosticsLoginScanBudget = static_cast<uint32>(loginScanLimit);
+        const size_t loginScanLimit = availableBots.size();
         for (size_t scanned = 0; scanned < loginScanLimit && !availableBots.empty(); ++scanned)
         {
             loginBotCursor %= availableBots.size();
@@ -883,18 +852,22 @@ void RandomPlayerbotMgr::UpdateAIInternal(uint32 elapsed, bool minimal)
             loginBotCursor = (loginBotCursor + 1) % availableBots.size();
 
             if (GetPlayerBot(bot))
-                continue;
+                continue;   
 
-            if (IsPendingBotLogin(bot))
+            if (!eventCache[bot].empty() && GetEventValue(bot, "login"))
+            {
+                onlineBotCount++;
                 continue;
+            }
 
             if (GetEventValue(bot, "login"))
-                continue;
+                onlineBotCount++;
+
+            if (onlineBotCount >= maxAllowedBotCount)
+                break;
 
             if (ProcessBot(bot)) {
                 --maxLogins;
-                ++pendingLoginCount;
-                --admissionCapacity;
             }
 
             if (maxLogins == 0)
@@ -2295,7 +2268,6 @@ bool RandomPlayerbotMgr::AddRandomBot(uint32 bot)
 
     if (!GetEventValue(bot, "login"))
     {
-        MarkPendingBotLogin(bot, time(nullptr));
         AddPlayerBot(bot, 0);
         SetEventValue(bot, "add", 1, urand(sPlayerbotAIConfig.minRandomBotInWorldTime, sPlayerbotAIConfig.maxRandomBotInWorldTime));
         SetEventValue(bot, "logout", 0, 0);
@@ -2402,13 +2374,9 @@ bool RandomPlayerbotMgr::ProcessBot(uint32 bot)
         if (!botsAllowedInWorld)
             return false;
 
-        if (IsPendingBotLogin(bot))
-            return true;
-
         if (GetEventValue(bot, "login"))
             return true;
 
-        MarkPendingBotLogin(bot, time(nullptr));
         AddPlayerBot(bot, 0);
 
         SetEventValue(bot, "login", 1, -1); // This will be reset to 0 on server startup. Check RandomPlayerbotMgr constructor
@@ -3020,27 +2988,7 @@ void RandomPlayerbotMgr::PrepareTeleportCache()
 
     sLog.outString("Enhancing RPG teleport cache");
 
-    const auto cacheStart = std::chrono::steady_clock::now();
-    auto lastProgress = cacheStart;
-    auto reportProgress = [&](const char* phase, uint32 completed, uint32 total, bool force = false)
-    {
-        const auto now = std::chrono::steady_clock::now();
-        if (force || now - lastProgress >= std::chrono::seconds(5))
-        {
-            const double elapsed = std::chrono::duration<double>(now - cacheStart).count();
-            sLog.outString("RPG teleport cache: %s %u/%u (%.1f seconds elapsed)", phase, completed, total, elapsed);
-            lastProgress = now;
-        }
-    };
-
     std::map<uint32, std::map<uint32, std::vector<std::string>>> areaNames;
-
-    uint32 areaTotal = 0;
-    for (const auto& race : rpgLocsCacheLevel)
-        for (const auto& level : race.second)
-            areaTotal += uint32(level.second.size());
-    uint32 areaDone = 0;
-    reportProgress("area names", 0, areaTotal, true);
 
     for (uint32 level = 1; level < sPlayerbotAIConfig.randomBotMaxLevel + 1; level++)
     {
@@ -3049,7 +2997,6 @@ void RandomPlayerbotMgr::PrepareTeleportCache()
             for (auto p : rpgLocsCacheLevel[r][level])
             {
                 areaNames[level][r].push_back(WorldPosition(p).getAreaName(true, true));
-                reportProgress("area names", ++areaDone, areaTotal);
             }
         }
     }
@@ -3058,13 +3005,8 @@ void RandomPlayerbotMgr::PrepareTeleportCache()
     std::vector<std::pair<std::pair<uint32, uint32>, GuidPosition>> innPoints;
 
     //Static portals.
-    reportProgress("area names", areaDone, areaTotal, true);
-    const auto gameObjects = WorldPosition().getGameObjectsNear(0, 0);
-    uint32 gameObjectsDone = 0;
-    reportProgress("portals", 0, uint32(gameObjects.size()), true);
-    for (auto& goData : gameObjects)
+    for (auto& goData : WorldPosition().getGameObjectsNear(0, 0))
     {
-        reportProgress("portals", ++gameObjectsDone, uint32(gameObjects.size()));
         GuidPosition go(goData);
 
         auto data = sGOStorage.LookupEntry<GameObjectInfo>(go.GetEntry());
@@ -3095,13 +3037,8 @@ void RandomPlayerbotMgr::PrepareTeleportCache()
     }
 
     //Creatures.
-    reportProgress("portals", gameObjectsDone, uint32(gameObjects.size()), true);
-    const auto creatures = WorldPosition().getCreaturesNear(0, 0);
-    uint32 creaturesDone = 0;
-    reportProgress("NPC destinations", 0, uint32(creatures.size()), true);
-    for (auto& creatureData : creatures)
+    for (auto& creatureData : WorldPosition().getCreaturesNear(0, 0))
     {
-        reportProgress("NPC destinations", ++creaturesDone, uint32(creatures.size()));
         CreatureInfo const* cInfo = ObjectMgr::GetCreatureTemplate(creatureData->second.id);
 
         if (!cInfo)
@@ -3146,9 +3083,6 @@ void RandomPlayerbotMgr::PrepareTeleportCache()
     
     for (auto innPoint : innPoints)
         innCacheLevel[innPoint.first.first][innPoint.first.second].push_back(std::make_pair(innPoint.second, innPoint.second));
-
-    reportProgress("NPC destinations", creaturesDone, uint32(creatures.size()), true);
-    sLog.outString("RPG teleport cache ready: %u added destinations, %u inn destinations", uint32(newPoints.size()), uint32(innPoints.size()));
 }
 
 void RandomPlayerbotMgr::PrintTeleportCache()
@@ -3576,50 +3510,6 @@ uint64 RandomPlayerbotMgr::PruneExpiredEventCache(time_t now)
     return released;
 }
 
-uint32 RandomPlayerbotMgr::PrunePendingBotLogins(time_t now)
-{
-    static constexpr time_t pendingLoginTimeout = 120;
-    uint32 expired = 0;
-    for (auto pending = pendingBotLogins.begin(); pending != pendingBotLogins.end();)
-    {
-        if (GetPlayerBot(pending->first))
-        {
-            pending = pendingBotLogins.erase(pending);
-            continue;
-        }
-
-        if (now >= pending->second && now - pending->second >= pendingLoginTimeout)
-        {
-            SetEventValue(pending->first, "login", 0, 0);
-            pending = pendingBotLogins.erase(pending);
-            ++expired;
-            continue;
-        }
-
-        ++pending;
-    }
-
-    if (expired)
-        sLog.outPerformance("BOT_LOGIN_TIMEOUT expired=%u pending=%u timeout_seconds=%u",
-            expired, static_cast<uint32>(pendingBotLogins.size()), static_cast<uint32>(pendingLoginTimeout));
-    return expired;
-}
-
-void RandomPlayerbotMgr::MarkPendingBotLogin(uint32 bot, time_t now)
-{
-    pendingBotLogins[bot] = now;
-}
-
-void RandomPlayerbotMgr::ClearPendingBotLogin(uint32 bot)
-{
-    pendingBotLogins.erase(bot);
-}
-
-bool RandomPlayerbotMgr::IsPendingBotLogin(uint32 bot) const
-{
-    return pendingBotLogins.find(bot) != pendingBotLogins.end();
-}
-
 uint32 RandomPlayerbotMgr::GetEventValue(uint32 bot, const std::string& event)
 {
     EnsureEventCacheLoaded(bot);
@@ -3909,7 +3799,6 @@ void RandomPlayerbotMgr::HandleCommand(uint32 type, const std::string& text, Pla
 
 void RandomPlayerbotMgr::OnPlayerLogout(Player* player)
 {
-    ClearPendingBotLogin(player->GetGUIDLow());
     bool hadPlayerBot = GetPlayerBot(player->GetGUIDLow());
 
     DisablePlayerBot(player->GetGUIDLow());
@@ -3934,7 +3823,6 @@ void RandomPlayerbotMgr::OnPlayerLogout(Player* player)
 
 void RandomPlayerbotMgr::OnBotLoginInternal(Player * const bot)
 {
-    ClearPendingBotLogin(bot->GetGUIDLow());
     sLog.outDetail("%u/%d Bot %s logged in", GetPlayerbotsAmount(), sRandomPlayerbotMgr.GetMaxAllowedBotCount(), bot->GetName());
 
     ApplyActionHistorySize(bot);
@@ -3948,7 +3836,6 @@ void RandomPlayerbotMgr::OnBotLoginInternal(Player * const bot)
 
 void RandomPlayerbotMgr::OnPlayerLogin(Player* player)
 {
-    ClearPendingBotLogin(player->GetGUIDLow());
     if (!sPlayerbotAIConfig.enabled)
         return;
 
@@ -3993,7 +3880,6 @@ void RandomPlayerbotMgr::OnPlayerLogin(Player* player)
 
 void RandomPlayerbotMgr::OnPlayerLoginError(uint32 bot)
 {
-    ClearPendingBotLogin(bot);
     SetEventValue(bot, "add", 0, 0);
     SetEventValue(bot, "login", 0, 0);
     currentBots.erase(std::remove(currentBots.begin(), currentBots.end(), bot), currentBots.end());

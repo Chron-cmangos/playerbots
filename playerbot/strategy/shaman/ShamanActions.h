@@ -2,7 +2,6 @@
 
 #include "playerbot/strategy/actions/GenericActions.h"
 #include "playerbot/strategy/actions/ChangeStrategyAction.h"
-#include "ShamanTotemSpells.h"
 
 namespace ai
 {
@@ -256,13 +255,13 @@ namespace ai
     class CastDiseaseCleansingTotemAction : public CastTotemAction
     {
     public:
-        CastDiseaseCleansingTotemAction(PlayerbotAI* ai) : CastTotemAction(ai, DiseaseCleansingTotemName()) {}
+        CastDiseaseCleansingTotemAction(PlayerbotAI* ai) : CastTotemAction(ai, "disease cleansing totem") {}
     };
 
     class CastPoisonCleansingTotemAction : public CastTotemAction
     {
     public:
-        CastPoisonCleansingTotemAction(PlayerbotAI* ai) : CastTotemAction(ai, PoisonCleansingTotemName()) {}
+        CastPoisonCleansingTotemAction(PlayerbotAI* ai) : CastTotemAction(ai, "poison cleansing totem") {}
     };
 
     class CastTotemOfWrathAction : public CastTotemAction
@@ -271,13 +270,11 @@ namespace ai
         CastTotemOfWrathAction(PlayerbotAI* ai) : CastTotemAction(ai, "totem of wrath") {}
     };
 
-    #ifdef MANGOSBOT_TWO
     class CastCleansingTotemAction : public CastTotemAction
     {
     public:
         CastCleansingTotemAction(PlayerbotAI* ai) : CastTotemAction(ai, "cleansing totem") {}
     };
-#endif
 
     class CastFlametongueTotemAction : public CastTotemAction
     {

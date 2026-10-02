@@ -66,24 +66,13 @@ WorldSafeLocsEntry const* GraveyardValue::GetAnotherAppropriateClosestGraveyard(
     // far
     WorldSafeLocsEntry const* entryFar = nullptr;
 
-    Corpse* corpse = bot->GetCorpse();
-    if (!corpse || !corpse->IsPositionValid())
-        return nullptr;
+    Corpse* corpse = bot->GetCorpse(); //
 
     if (!corpse)
         return nullptr;
 
     uint32 botMapId = corpse->GetMapId();
-    // A corpse can outlive the instance Map object it was originally attached
-    // to.  WorldObject::GetZoneId() dereferences that Map pointer, so using it
-    // here can access a destroyed instance while a ghost is being updated in a
-    // newer instance.  Resolve the stored corpse coordinates through the
-    // terrain manager instead.
-    uint32 botZoneId = sTerrainMgr.GetZoneId(
-        botMapId,
-        corpse->GetPositionX(),
-        corpse->GetPositionY(),
-        corpse->GetPositionZ());
+    uint32 botZoneId = corpse->GetZoneId();
 
     for (auto mapValues : sWorld.GetGraveyardManager().GetGraveyardMap())
     {
@@ -95,8 +84,6 @@ WorldSafeLocsEntry const* GraveyardValue::GetAnotherAppropriateClosestGraveyard(
             continue;
 
         WorldSafeLocsEntry const* graveyardCoreEntry = sWorldSafeLocsStore.LookupEntry<WorldSafeLocsEntry>(graveyardData.safeLocId);
-        if (!graveyardCoreEntry)
-            continue;
 
         //skip different maps (no need for other continents)
         if (graveyardCoreEntry->map_id != botMapId)
