@@ -1159,15 +1159,13 @@ bool UseItemIdAction::isPossible()
         return false;
 
     ItemPrototype const* proto = sObjectMgr.GetItemPrototype(itemId);
-    // Match the native eligibility check performed by UseItemInternal. In
-    // particular, an underlevel rune must not hide a usable potion fallback.
-    if (!proto || bot->CanUseItem(proto) != EQUIP_ERR_OK)
+    if (!proto)
         return false;
 
     if (HasItemCooldown(itemId))
         return false;
 
-    if (!ai->HasCheat(BotCheatMask::item) && !bot->HasItemCount(itemId, 1))
+        if (!ai->HasCheat(BotCheatMask::item) && !bot->HasItemCount(itemId, 1))
         return false;
 
 

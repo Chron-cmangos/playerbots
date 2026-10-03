@@ -96,9 +96,6 @@ public:
         virtual std::vector<std::string> GetUsedValues() { return {}; }
 #endif 
     virtual bool Execute(Event& event) override;
-    bool isUseful() override;
 private:
-    uint32 warsongRetryUntil = 0;
-    bool refreshWarsongObjective();
     bool moveToCenter(BattleGround *bg);
 };

@@ -2,7 +2,6 @@
 #include "playerbot/playerbot.h"
 #include "EnemyPlayerValue.h"
 #include "TargetValue.h"
-#include "PvpValues.h"
 
 using namespace ai;
 
@@ -140,9 +139,6 @@ ObjectGuid EnemyPlayerValue::Calculate()
     {
         return bot->duel->opponent->GetObjectGuid();
     }
-
-    if (ActualBattlegroundType(bot) == BATTLEGROUND_WS && !ai->HasRealPlayerMaster())
-        return SelectWarsongCombatTarget(ai);
 
     Unit* bestEnemyPlayer = nullptr;
     std::list<ObjectGuid> enemyPlayers = AI_VALUE(std::list<ObjectGuid>, "enemy player targets");
