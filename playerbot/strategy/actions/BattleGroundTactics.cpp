@@ -2351,16 +2351,7 @@ bool BGTactics::wsgPaths()
             }
             else if (bot->GetPositionX() < 1070.f) //to the horde entrance
             {
-                // Bypasses regular pathfinding constraints using the EOTS fix logic
-                MotionMaster& mm = *bot->GetMotionMaster();
-                mm.MovePoint(
-                    bg->GetMapId(),
-                    Position(1076.778076f, 1396.0f, 324.0f, 0.0f),
-                    FORCED_MOVEMENT_RUN,
-                    0.0f,
-                    false);
-
-                return true;
+                return MoveTo(bg->GetMapId(), 1076.778076f, 1396.0f, 324.0f, false, false, true);
             }
             else if (bot->GetPositionX() < 1125.f) //to the horde entrance
             {
