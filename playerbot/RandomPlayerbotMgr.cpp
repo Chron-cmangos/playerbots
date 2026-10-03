@@ -750,6 +750,28 @@ void RandomPlayerbotMgr::UpdateAIInternal(uint32 elapsed, bool minimal)
 
     uint32 maxLogins = sPlayerbotAIConfig.randomBotsMaxLoginsPerInterval;
 
+    // Do not materialize thousands of complete login holders faster than the
+    // world thread can consume them. Each holder owns several query results,
+    // so an unbounded queue creates a large and avoidable startup memory spike.
+    const uint32 loginQueueLimit = sPlayerbotAIConfig.randomBotLoginDbQueueLimit;
+    if (loginQueueLimit)
+    {
+        const size_t pendingLoginDbWork = CharacterDatabase.GetPendingResultCount() +
+            CharacterDatabase.GetPendingAsyncOperationCount();
+        if (pendingLoginDbWork >= loginQueueLimit)
+            maxLogins = 0;
+        else
+            maxLogins = std::min<uint32>(maxLogins, loginQueueLimit - static_cast<uint32>(pendingLoginDbWork));
+
+        static time_t lastBackpressureLog = 0;
+        if (!maxLogins && pendingLoginDbWork && time(nullptr) >= lastBackpressureLog + 5)
+        {
+            lastBackpressureLog = time(nullptr);
+            sLog.outPerformance("BOT_LOGIN_BACKPRESSURE pending=%u limit=%u bots_online=%u target=%u",
+                static_cast<uint32>(pendingLoginDbWork), loginQueueLimit, onlineBotCount, maxAllowedBotCount);
+        }
+    }
+
     //Log in bots
     if (sRandomPlayerbotMgr.GetDatabaseDelay("CharacterDatabase") < 10 * IN_MILLISECONDS && !sPlayerbotAIConfig.asyncBotLogin && onlineBotCount < maxAllowedBotCount && maxLogins > 0)
     {
@@ -2479,7 +2501,8 @@ void RandomPlayerbotMgr::RandomTeleport(Player* bot, std::vector<WorldLocation> 
         tlocs.erase(std::remove_if(tlocs.begin(), tlocs.end(), [this](const WorldPosition& l)
         {
             uint32 mapId = l.getMapId();
-            Map* tMap = sMapMgr.FindMap(mapId, 0);
+            uint32 const instanceId = sMapMgr.GetContinentInstanceId(mapId, l.coord_x, l.coord_y);
+            Map* tMap = sMapMgr.FindMap(mapId, instanceId);
             if (tMap && tMap->IsContinent() && tMap->HasActiveZones())
             {
                 uint32 zoneId = sTerrainMgr.GetZoneId(mapId, l.coord_x, l.coord_y, l.coord_z);
@@ -2652,7 +2675,8 @@ void RandomPlayerbotMgr::RandomTeleport(Player* bot, std::vector<WorldLocation> 
             float y = loc.coord_y + (attemtps > 0 ? urand(0, sPlayerbotAIConfig.grindDistance) - sPlayerbotAIConfig.grindDistance / 2 : 0);
             float z = loc.coord_z;
 
-            Map* map = sMapMgr.FindMap(loc.mapid, 0);
+            uint32 const instanceId = sMapMgr.GetContinentInstanceId(loc.mapid, x, y);
+            Map* map = sMapMgr.FindMap(loc.mapid, instanceId);
             if (!map)
                 continue;
 
@@ -4578,7 +4602,12 @@ uint32 RandomPlayerbotMgr::GetBattleMasterEntry(Player* bot, BattleGroundTypeId 
 
         CreatureData const* data = &dataPair->second;
 
-        Unit* Bm = sMapMgr.FindMap((uint32)data->mapid)->GetUnit(ObjectGuid(HIGHGUID_UNIT, *i, dataPair->first));
+        uint32 const instanceId = sMapMgr.GetContinentInstanceId(data->mapid, data->posX, data->posY);
+        Map* map = sMapMgr.FindMap(data->mapid, instanceId);
+        if (!map)
+            continue;
+
+        Unit* Bm = map->GetUnit(ObjectGuid(HIGHGUID_UNIT, *i, dataPair->first));
         if (!Bm)
             continue;
 
