@@ -13,12 +13,7 @@ bool DpsAssistAction::isUseful()
     if (bot->HasAura(23333) || bot->HasAura(23335) || bot->HasAura(34976))
         return false;
 
-    // Do not admit an assist action for a stale selection. This avoids repeatedly
-    // asking AttackAction to reject targets retained across death, map changes or
-    // group target switches.
-    Unit* target = GetTarget();
-    return target && target->IsInWorld() && target->GetMapId() == bot->GetMapId() &&
-        !sServerFacade.UnitIsDead(target) && !sServerFacade.IsFriendlyTo(bot, target);
+    return true;
 }
 
 bool AttackAnythingAction::isUseful() 

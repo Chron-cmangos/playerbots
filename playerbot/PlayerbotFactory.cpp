@@ -4070,15 +4070,11 @@ void PlayerbotFactory::InitTradeSkills()
                     if (proto->Effect[j] == SPELL_EFFECT_LEARN_SPELL)
                     {
                         uint32 learnedSpell = proto->EffectTriggerSpell[j];
-                        if (learnedSpell && sServerFacade.LookupSpellInfo(learnedSpell))
-                        {
-                            bot->learnSpell(learnedSpell, false);
-                            learned = true;
-                        }
+                        bot->learnSpell(learnedSpell, false);
+                        learned = true;
                     }
                 }
-                if (!learned && tSpell->learnedSpell && sServerFacade.LookupSpellInfo(tSpell->learnedSpell))
-                    bot->learnSpell(tSpell->learnedSpell, false);
+                if (!learned) bot->learnSpell(tSpell->learnedSpell, false);
             }
             else
                 ai->CastSpell(tSpell->spell, bot);
@@ -4093,14 +4089,11 @@ void PlayerbotFactory::InitTradeSkills()
                         if (proto->Effect[j] == SPELL_EFFECT_LEARN_SPELL)
                         {
                             uint32 learnedSpell = proto->EffectTriggerSpell[j];
-                            if (learnedSpell && sServerFacade.LookupSpellInfo(learnedSpell))
-                            {
-                                bot->learnSpell(learnedSpell, false);
-                                learned = true;
-                            }
+                            bot->learnSpell(learnedSpell, false);
+                            learned = true;
                         }
                     }
-                    if (!learned && learnSpell && sServerFacade.LookupSpellInfo(learnSpell))
+                    if (!learned)
                         bot->learnSpell(learnSpell, false);
                 }
             }

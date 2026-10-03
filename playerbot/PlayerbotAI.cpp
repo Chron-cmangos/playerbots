@@ -43,7 +43,6 @@
 #include "PlayerbotLLMInterface.h"
 
 #include <boost/algorithm/string.hpp>
-#include <cmath>
 
 #ifdef MANGOSBOT_TWO
 #include "Entities/Vehicle.h"
@@ -4518,26 +4517,17 @@ bool PlayerbotAI::HasSpell(std::string name) const
 
 bool PlayerbotAI::HasSpell(uint32 spellid) const
 {
-    if (!spellid || !sServerFacade.LookupSpellInfo(spellid))
-        return false;
-
     Pet* pet = bot->GetPet();
     if (pet && pet->HasSpell(spellid))
+    {
         return true;
+    }
+    else if (bot->HasSpell(spellid))
+    {
+        return true;
+    }
 
-    const uint32 now = WorldTimer::getMSTime();
-    const uint32 signature = (uint32(bot->GetLevel()) << 24) ^
-        (uint32(bot->GetSpellMap().size()) << 8) ^ uint32(bot->GetFreeTalentPoints());
-    auto cached = spellCapabilityCache.find(spellid);
-    if (cached != spellCapabilityCache.end() && cached->second.signature == signature &&
-        static_cast<int32>(cached->second.expiresAtMs - now) > 0)
-        return cached->second.known;
-
-    const bool known = bot->HasSpell(spellid);
-    if (spellCapabilityCache.size() >= 256)
-        spellCapabilityCache.clear();
-    spellCapabilityCache[spellid] = {signature, now + 1000, known};
-    return known;
+    return false;
 }
 
 bool PlayerbotAI::CanCastSpell(std::string name, Unit* target, uint8 effectMask, Item* itemTarget, bool ignoreRange, bool ignoreInCombat, bool ignoreMount, SpellCastResult* checkResult)
@@ -4547,10 +4537,13 @@ bool PlayerbotAI::CanCastSpell(std::string name, Unit* target, uint8 effectMask,
 
 bool PlayerbotAI::CanCastSpell(uint32 spellid, Unit* target, uint8 effectMask, bool checkHasSpell, Item* itemTarget, bool ignoreRange, bool ignoreInCombat, bool ignoreMount, SpellCastResult* checkResult)
 {
-    if (!spellid || !sServerFacade.LookupSpellInfo(spellid))
+    if (!spellid)
     {
         if (checkResult)
+        {
             *checkResult = SPELL_FAILED_NOT_KNOWN;
+        }
+
         return false;
     }
 
@@ -4768,8 +4761,7 @@ bool PlayerbotAI::CanCastSpell(uint32 spellid, Unit* target, uint8 effectMask, b
 
 bool PlayerbotAI::CanCastSpell(uint32 spellid, GameObject* goTarget, uint8 effectMask, bool checkHasSpell, bool ignoreRange, bool ignoreInCombat, bool ignoreMount, SpellCastResult* checkResult)
 {
-    if (!spellid || !sServerFacade.LookupSpellInfo(spellid) || !goTarget ||
-        !goTarget->IsInWorld() || goTarget->GetMapId() != bot->GetMapId())
+    if (!spellid)
     {
         if (checkResult)
         {
@@ -4896,8 +4888,7 @@ bool PlayerbotAI::CanCastSpell(uint32 spellid, GameObject* goTarget, uint8 effec
 
 bool PlayerbotAI::CanCastSpell(uint32 spellid, float x, float y, float z, uint8 effectMask, bool checkHasSpell, Item* itemTarget, bool ignoreRange, bool ignoreInCombat, bool ignoreMount, SpellCastResult* checkResult)
 {
-    if (!spellid || !sServerFacade.LookupSpellInfo(spellid) ||
-        !std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z))
+    if (!spellid)
     {
         if (checkResult)
         {
@@ -5034,8 +5025,7 @@ bool PlayerbotAI::CastSpell(std::string name, Unit* target, Item* itemTarget, bo
 
 bool PlayerbotAI::CastSpell(uint32 spellId, Unit* target, Item* itemTarget, bool waitForSpell, uint32* outSpellDuration)
 {
-    const SpellEntry* pSpellInfo = spellId ? sServerFacade.LookupSpellInfo(spellId) : nullptr;
-    if (!pSpellInfo)
+    if (!spellId)
         return false;
 
     if (!target)
@@ -5090,6 +5080,7 @@ bool PlayerbotAI::CastSpell(uint32 spellId, Unit* target, Item* itemTarget, bool
         return false;
     }
 
+    const SpellEntry* pSpellInfo = sServerFacade.LookupSpellInfo(spellId);
     Spell *spell = new Spell(bot, pSpellInfo, false);
 
     SpellCastTargets targets;
@@ -5273,8 +5264,7 @@ bool PlayerbotAI::CastSpell(uint32 spellId, Unit* target, Item* itemTarget, bool
 
 bool PlayerbotAI::CastSpell(uint32 spellId, GameObject* goTarget, Item* itemTarget, bool waitForSpell, uint32* outSpellDuration)
 {
-    const SpellEntry* pSpellInfo = spellId ? sServerFacade.LookupSpellInfo(spellId) : nullptr;
-    if (!pSpellInfo || !goTarget || !goTarget->IsInWorld() || goTarget->GetMapId() != bot->GetMapId())
+    if (!spellId)
         return false;
 
     aiObjectContext->GetValue<LastMovement&>("last movement")->Get().Set(NULL);
@@ -5317,6 +5307,7 @@ bool PlayerbotAI::CastSpell(uint32 spellId, GameObject* goTarget, Item* itemTarg
         return false;
     }
 
+    const SpellEntry* pSpellInfo = sServerFacade.LookupSpellInfo(spellId);
     Spell* spell = new Spell(bot, pSpellInfo, false);
 
     SpellCastTargets targets;
@@ -5420,8 +5411,7 @@ bool PlayerbotAI::CastSpell(uint32 spellId, GameObject* goTarget, Item* itemTarg
 
 bool PlayerbotAI::CastSpell(uint32 spellId, float x, float y, float z, Item* itemTarget, bool waitForSpell, uint32* outSpellDuration)
 {
-    const SpellEntry* pSpellInfo = spellId ? sServerFacade.LookupSpellInfo(spellId) : nullptr;
-    if (!pSpellInfo || !std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z))
+    if (!spellId)
         return false;
 
     Pet* pet = bot->GetPet();
@@ -5467,6 +5457,7 @@ bool PlayerbotAI::CastSpell(uint32 spellId, float x, float y, float z, Item* ite
         return false;
     }
 
+    const SpellEntry* pSpellInfo = sServerFacade.LookupSpellInfo(spellId);
     Spell* spell = new Spell(bot, pSpellInfo, false);
 
     SpellCastTargets targets;

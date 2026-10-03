@@ -12,7 +12,6 @@
 #include "BotState.h"
 #include "PlayerTalentSpec.h"
 #include <stack>
-#include <unordered_map>
 #include <deque>
 #include <functional>
 #include "strategy/IterateItemsMask.h"
@@ -565,7 +564,6 @@ public:
 
     bool HasSpell(std::string name) const;
     bool HasSpell(uint32 spellid) const;
-    size_t GetSpellCapabilityCacheSize() const { return spellCapabilityCache.size(); }
     bool HasAura(uint32 spellId, Unit* player, bool checkOwner = false);
     Aura* GetAura(uint32 spellId, Unit* player, bool checkOwner = false);
     Aura* GetAura(std::string spellName, Unit* player, bool checkOwner = false);
@@ -834,17 +832,6 @@ protected:
     bool m_recordIncommingMessages = false;
     std::vector<std::string> m_recordedMessages;
     Event lastEvent;
-    struct SpellCapabilityEntry
-    {
-        uint32 signature = 0;
-        uint32 expiresAtMs = 0;
-        bool known = false;
-    };
-    // Static spellbook capability answers are hot and stable for long stretches.
-    // The short TTL plus level/spell-count signature keeps this cache correct
-    // across training, level, talent, pet and form changes without caching any
-    // dynamic cast state (cooldown/range/resource/target/LOS).
-    mutable std::unordered_map<uint32, SpellCapabilityEntry> spellCapabilityCache;
 
 public:
     void RecordMessages(bool record, bool incomming = false) { m_recordMessages = record; m_recordIncommingMessages = incomming; if (!record) m_recordedMessages.clear(); }

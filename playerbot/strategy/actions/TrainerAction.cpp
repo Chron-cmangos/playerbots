@@ -34,15 +34,11 @@ void TrainerAction::Learn(uint32 cost, ObjectGuid trainerGuid, uint32 spellId, T
             if (proto->Effect[j] == SPELL_EFFECT_LEARN_SPELL)
             {
                 uint32 learnedSpell = proto->EffectTriggerSpell[j];
-                if (learnedSpell && sServerFacade.LookupSpellInfo(learnedSpell))
-                {
-                    bot->learnSpell(learnedSpell, false);
-                    learned = true;
-                }
+                bot->learnSpell(learnedSpell, false);
+                learned = true;
             }
         }
-        if (!learned && tSpell->learnedSpell && sServerFacade.LookupSpellInfo(tSpell->learnedSpell))
-            bot->learnSpell(tSpell->learnedSpell, false);
+        if (!learned) bot->learnSpell(tSpell->learnedSpell, false);
     }
     else
         ai->CastSpell(tSpell->spell, bot);
@@ -57,7 +53,7 @@ void TrainerAction::Learn(uint32 cost, ObjectGuid trainerGuid, uint32 spellId, T
 
     if (tSpell->IsCastable())
         bot->CastSpell(bot, tSpell->spell, TRIGGERED_OLD_TRIGGERED);
-    else if (spellId && sServerFacade.LookupSpellInfo(spellId))
+    else
         bot->learnSpell(spellId, false);
 #endif
 
