@@ -180,7 +180,13 @@ bool PartyMemberToHeal::CanHealPet(Pet* pet)
 
 bool PartyMemberToHeal::Check(Unit* player)
 {
-    const float maxDist = ai->GetRange("heal");
+    bool isBg = bot->InBattleGround();
+
+    float maxDist = ai->GetRange("heal");
+    if (isBg)
+    {
+        maxDist *= 0.5f;
+    }
 
     if (!player)
         return false;

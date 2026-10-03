@@ -336,7 +336,7 @@ namespace ai
     class CastWindShearAction : public CastSpellAction 
     {
     public:
-        CastWindShearAction(PlayerbotAI* ai) : CastSpellAction(ai, ShamanInterruptSpell()) {}
+        CastWindShearAction(PlayerbotAI* ai) : CastSpellAction(ai, "wind shear") {}
     };
 
 	class CastAncestralSpiritAction : public ResurrectPartyMemberAction
@@ -466,7 +466,7 @@ namespace ai
     class CastWindShearOnEnemyHealerAction : public CastSpellOnEnemyHealerAction
     {
     public:
-        CastWindShearOnEnemyHealerAction(PlayerbotAI* ai) : CastSpellOnEnemyHealerAction(ai, ShamanInterruptSpell()) {}
+        CastWindShearOnEnemyHealerAction(PlayerbotAI* ai) : CastSpellOnEnemyHealerAction(ai, "wind shear") {}
     };
 
     class CastCurePoisonAction : public CastCureSpellAction

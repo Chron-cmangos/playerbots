@@ -15,9 +15,12 @@ public:
         creators["lesser healing wave"] = &lesser_healing_wave;
         creators["lesser healing wave on party"] = &lesser_healing_wave_on_party;
         creators["earth shock"] = &earth_shock;
+        creators["wind shear"] = &wind_shear;
     }
 
 private:
+    ACTION_NODE_A(wind_shear, "wind shear", "earth shock");
+
     ACTION_NODE_A(earth_shock, "earth shock", "flame shock");
 
     ACTION_NODE_A(flametongue_weapon, "flametongue weapon", "frostbrand weapon");

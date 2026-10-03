@@ -5,7 +5,6 @@
 #include "playerbot/TravelMgr.h"
 #include "playerbot/strategy/generic/PullStrategy.h"
 #include "playerbot/strategy/values/FreeMoveValues.h"
-#include "playerbot/strategy/values/PvpValues.h"
 
 bool DpsAssistAction::isUseful()
 {
@@ -92,12 +91,9 @@ bool AttackEnemyPlayerAction::isUseful()
 
 bool AttackEnemyFlagCarrierAction::isUseful()
 {
-    Unit* target = AI_VALUE(Unit*, "enemy flag carrier");
-    if (ActualBattlegroundType(bot) == BATTLEGROUND_WS && !ai->HasRealPlayerMaster() &&
-        target != AI_VALUE(Unit*, "enemy player target")) return false;
-    return target && target->IsInWorld() && target->IsAlive() && bot->IsInMap(target) &&
-        !sServerFacade.IsFriendlyTo(bot, target) && !IsBattlegroundFlagCarrier(bot) &&
-        target != AI_VALUE(Unit*, "current target") && bot->IsWithinDistInMap(target, 75.0f);
+    PlayerbotAI* ai = bot->GetPlayerbotAI();
+    Unit* target = ai->GetUnit(context->GetValue<ObjectGuid>("enemy flag carrier")->Get());
+    return target && sServerFacade.IsDistanceLessOrEqualThan(sServerFacade.GetDistance2d(bot, target), 75.0f) && (bot->HasAura(23333) || bot->HasAura(23335) || bot->HasAura(34976));
 }
 
 bool SelectNewTargetAction::Execute(Event& event)
