@@ -317,8 +317,7 @@ private:
 
         virtual bool IsActive() override
         {
-            return DebuffTrigger::IsActive() && AI_VALUE2(bool, "has mana", "current target") &&
-                AI_VALUE2(uint8, "mana", "current target") >= 10;
+            return DebuffTrigger::IsActive() && AI_VALUE2(uint8, "mana", "current target") >= 10;
         }
     };
 

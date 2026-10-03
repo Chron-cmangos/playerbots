@@ -1521,7 +1521,7 @@ std::string PlayerbotHolder::HandleBotDo(Player* bot, Player* master, const std:
     size_t i = std::string::npos;
     while (true)
     {
-        action = ai->GetAiObjectContext()->GetAction(actionName);
+        action = ai->GetAiObjectContext()->GetAction(param);
 
         if (action)
             break;
@@ -1545,7 +1545,6 @@ std::string PlayerbotHolder::HandleBotDo(Player* bot, Player* master, const std:
 
     if (!ai->DoSpecificAction(actionName, Event(".bot", subparam, master ? master : bot), true))
     {
-        ai->RecordMessages(false);
         output = GetBotErrors(bot->GetName());
 
         if (output.empty())

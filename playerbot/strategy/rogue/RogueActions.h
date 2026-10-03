@@ -13,8 +13,17 @@ namespace ai
     public:
         CastShadowstepAction(PlayerbotAI* ai) : CastSpellAction(ai, "shadowstep") {}
 
-        // Use the ordinary spell action: target/range/resource checks and a
-        // normal cast, rather than a forced triggered cast with enum-as-bool results.
+        virtual bool isPossible() { return true; }
+
+        virtual bool isUseful() override
+        {
+            return bot->HasSpell(36554) && bot->IsSpellReady(36554);
+        }
+
+        virtual bool Execute(Event& event) override
+        {
+            return bot->CastSpell(GetTarget(), 36554, TRIGGERED_OLD_TRIGGERED);
+        }
     };
 
 	class CastEvasionAction : public CastBuffSpellAction
@@ -55,10 +64,9 @@ namespace ai
                 ai->ChangeStrategy("+stealthed", BotState::BOT_STATE_COMBAT);
                 ai->ChangeStrategy("+stealthed", BotState::BOT_STATE_NON_COMBAT);
                 bot->InterruptSpell(CURRENT_MELEE_SPELL);
-                return true;
             }
 
-            return false;
+            return true;
         }
     };
 

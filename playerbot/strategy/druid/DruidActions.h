@@ -217,7 +217,7 @@ namespace ai
     class CastBarskinAction : public CastBuffSpellAction
     {
     public:
-        CastBarskinAction(PlayerbotAI* ai) : CastBuffSpellAction(ai, "barkskin") {}
+        CastBarskinAction(PlayerbotAI* ai) : CastBuffSpellAction(ai, "barskin") {}
     };
 
     class CastInnervateAction : public CastSpellTargetAction
@@ -230,9 +230,13 @@ namespace ai
         {
             if (CastSpellTargetAction::IsTargetValid(target))
             {
-                const uint32 maxMana = target->GetMaxPower(POWER_MANA);
-                return maxMana && uint64(target->GetPower(POWER_MANA)) * 100 <
-                    uint64(maxMana) * sPlayerbotAIConfig.lowMana;
+                const uint32 currentMana = target->GetPower(POWER_MANA);
+                if (currentMana > 0)
+                {
+                    const uint32 maxMana = target->GetMaxPower(POWER_MANA);
+                    const uint32 currentManaPct = (uint32)(currentMana / maxMana) * 100;
+                    return currentManaPct < sPlayerbotAIConfig.lowMana;
+                }
             }
 
             return false;

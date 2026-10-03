@@ -17,13 +17,10 @@
 #include "LootObjectStack.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "PlayerbotAI.h"
-#include "strategy/actions/EncounterSpellPolicy.h"
-#include "strategy/actions/DungeonActions.h"
 #include "playerbot/PlayerbotFactory.h"
 #include "PlayerbotSecurity.h"
 #include "Groups/Group.h"
 #include "Entities/Pet.h"
-#include "AI/BaseAI/CreatureAI.h"
 #include "Spells/SpellAuras.h"
 #include "Spells/SpellMgr.h"
 #include "PlayerbotDbStore.h"
@@ -4275,22 +4272,32 @@ bool PlayerbotAI::HasAura(uint32 spellId, Unit* unit, bool checkOwner)
 
 Aura* PlayerbotAI::GetAura(uint32 spellId, Unit* unit, bool checkIsOwner)
 {
-    if (!spellId || !unit)
-        return nullptr;
-
-    // Several casters can apply the same spell. Select the native holder by
-    // caster before inspecting effects, rather than rejecting only the first
-    // caster's aura and overlooking the bot's own disease/DoT.
-    SpellAuraHolder* owned = checkIsOwner ? unit->GetSpellAuraHolder(spellId, bot->GetObjectGuid()) : nullptr;
-    for (uint32 effect = EFFECT_INDEX_0; effect <= EFFECT_INDEX_2; ++effect)
+    Aura* aura = nullptr;
+    if (spellId != 0 && unit)
     {
-        Aura* aura = checkIsOwner
-            ? (owned ? owned->GetAuraByEffectIndex(SpellEffectIndex(effect)) : nullptr)
-            : unit->GetAura(spellId, SpellEffectIndex(effect));
-        if (IsRealAura(bot, aura, unit))
-            return aura;
+        for (uint32 effect = EFFECT_INDEX_0; effect <= EFFECT_INDEX_2; effect++)
+        {
+            Aura* auraTmp = ((Unit*)unit)->GetAura(spellId, (SpellEffectIndex)effect);
+            if (IsRealAura(bot, auraTmp, (Unit*)unit))
+            {
+                if (checkIsOwner)
+                {
+                    if (aura->GetHolder() && aura->GetHolder()->GetCasterGuid() == bot->GetObjectGuid())
+                    {
+                        aura = auraTmp;
+                        break;
+                    }
+                }
+                else
+                {
+                    aura = auraTmp;
+                    break;
+                }
+            }
+        }
     }
-    return nullptr;
+
+    return aura;
 }
 
 Aura* PlayerbotAI::GetAura(std::string name, Unit* unit, bool checkIsOwner)
@@ -4548,8 +4555,15 @@ bool PlayerbotAI::CanCastSpell(uint32 spellid, Unit* target, uint8 effectMask, b
     }
 
     Pet* pet = bot->GetPet();
-    if (pet && pet->HasSpell(spellid))
-        return CanCastPetSpell(spellid, target ? target : bot, checkResult);
+    if (pet && pet->HasSpell(spellid) && pet->IsSpellReady(spellid))
+    {
+        if (checkResult)
+        {
+            *checkResult = SPELL_CAST_OK;
+        }
+
+        return true;
+    }
 
     if (bot->hasUnitState(UNIT_STAT_CAN_NOT_REACT_OR_LOST_CONTROL))
     {
@@ -4766,12 +4780,14 @@ bool PlayerbotAI::CanCastSpell(uint32 spellid, GameObject* goTarget, uint8 effec
     }
 
     Pet* pet = bot->GetPet();
-    if (pet && pet->HasSpell(spellid))
+    if (pet && pet->HasSpell(spellid) && pet->IsSpellReady(spellid))
     {
         if (checkResult)
-            *checkResult = SPELL_FAILED_BAD_TARGETS;
-        // The pet-action opcode carries a unit GUID, not a gameobject target.
-        return false;
+        {
+            *checkResult = SPELL_CAST_OK;
+        }
+
+        return true;
     }
 
     if (bot->hasUnitState(UNIT_STAT_CAN_NOT_REACT_OR_LOST_CONTROL))
@@ -4892,12 +4908,14 @@ bool PlayerbotAI::CanCastSpell(uint32 spellid, float x, float y, float z, uint8 
     }
 
     Pet* pet = bot->GetPet();
-    if (pet && pet->HasSpell(spellid))
+    if (pet && pet->HasSpell(spellid) && pet->IsSpellReady(spellid))
     {
         if (checkResult)
-            *checkResult = SPELL_FAILED_BAD_TARGETS;
-        // Do not discard a requested destination and issue an untargeted pet command.
-        return false;
+        {
+            *checkResult = SPELL_CAST_OK;
+        }
+
+        return true;
     }
 
     if (bot->hasUnitState(UNIT_STAT_CAN_NOT_REACT_OR_LOST_CONTROL))
@@ -4938,9 +4956,7 @@ bool PlayerbotAI::CanCastSpell(uint32 spellid, float x, float y, float z, uint8 
 
     if (!itemTarget)
     {
-        // The default bounding-radius overload already returns a linear distance.
-        // DIST_CALC_NONE is different: it returns squared distance in CMaNGOS.
-        if (bot->GetDistance(x, y, z) > sPlayerbotAIConfig.sightDistance)
+        if (sqrt(bot->GetDistance(x,y,z)) > sPlayerbotAIConfig.sightDistance)
         {
             if (checkResult)
             {
@@ -5411,7 +5427,7 @@ bool PlayerbotAI::CastSpell(uint32 spellId, float x, float y, float z, Item* ite
     Pet* pet = bot->GetPet();
     if (pet && pet->HasSpell(spellId))
     {
-        return false; // This overload cannot transmit its destination/gameobject to a pet.
+        return CastPetSpell(spellId, nullptr);
     }
 
     aiObjectContext->GetValue<LastMovement&>("last movement")->Get().Set(NULL);
@@ -5554,74 +5570,10 @@ bool PlayerbotAI::CastSpell(uint32 spellId, float x, float y, float z, Item* ite
     return true;
 }
 
-bool PlayerbotAI::CanCastPetSpell(uint32 spellId, Unit* target, SpellCastResult* checkResult)
-{
-    auto fail = [checkResult](SpellCastResult result)
-    {
-        if (checkResult)
-            *checkResult = result;
-        return false;
-    };
-
-    const SpellEntry* spellInfo = spellId ? sServerFacade.LookupSpellInfo(spellId) : nullptr;
-    Pet* pet = bot->GetPet();
-    if (!spellInfo || !pet || !pet->HasSpell(spellId) || IsPassiveSpell(spellInfo))
-        return fail(SPELL_FAILED_NOT_KNOWN);
-    if (!bot->IsInWorld() || !bot->IsAlive() || bot->IsBeingTeleported() ||
-        !pet->IsInWorld() || !pet->IsAlive())
-        return fail(SPELL_FAILED_CASTER_DEAD);
-    if (!bot->IsInMap(pet) || pet->GetMasterGuid() != bot->GetObjectGuid() ||
-        !pet->GetCharmInfo() || pet->HasActionsDisabled() || !pet->AI() ||
-        pet->AI()->GetCombatScriptStatus())
-        return fail(SPELL_FAILED_NOT_IN_CONTROL);
-    if (!pet->IsSpellReady(spellId))
-        return fail(SPELL_FAILED_NOT_READY);
-    if (pet->IsNonMeleeSpellCasted(false) &&
-        !spellInfo->HasAttribute(SPELL_ATTR_EX4_ALLOW_CAST_WHILE_CASTING))
-        return fail(SPELL_FAILED_SPELL_IN_PROGRESS);
-    if (!sSpellRangeStore.LookupEntry(spellInfo->rangeIndex))
-        return fail(SPELL_FAILED_OUT_OF_RANGE);
-
-    // Match the native pet-action packet's admission and target semantics.
-    for (unsigned int implicitTarget : spellInfo->EffectImplicitTargetA)
-    {
-        if (implicitTarget == TARGET_ENUM_UNITS_ENEMY_AOE_AT_SRC_LOC ||
-            implicitTarget == TARGET_ENUM_UNITS_ENEMY_AOE_AT_DEST_LOC ||
-            implicitTarget == TARGET_ENUM_UNITS_ENEMY_AOE_AT_DYNOBJ_LOC)
-            return fail(SPELL_FAILED_BAD_TARGETS);
-    }
-    if (IsSpellRequireTarget(spellInfo))
-    {
-        if (!target || !target->IsInWorld() || !pet->IsInMap(target))
-            return fail(SPELL_FAILED_BAD_TARGETS);
-        if (IsPositiveSpell(spellInfo, pet, target) ? !pet->CanAssistSpell(target, spellInfo) : !pet->CanAttack(target))
-            return fail(SPELL_FAILED_BAD_TARGETS);
-    }
-    else
-        target = nullptr;
-
-    uint32 flags = TRIGGERED_NORMAL_COMBAT_CAST;
-    if (!pet->hasUnitState(UNIT_STAT_POSSESSED))
-        flags |= TRIGGERED_PET_CAST;
-    // Check only: no SpellStart, power spending, packet, movement or AI mutation.
-    Spell spell(pet, spellInfo, flags);
-    spell.m_targets.setUnitTarget(target);
-    const SpellCastResult result = spell.CheckCast(true);
-    if (checkResult)
-        *checkResult = result;
-
-    if (result == SPELL_CAST_OK || result == SPELL_FAILED_UNIT_NOT_INFRONT || result == SPELL_FAILED_NOT_INFRONT)
-        return true;
-    // The native handler starts a path-checked spell opener for hostile targets.
-    // Preserve that behavior; admitting a command is not proof a spell landed.
-    return target && pet->CanAttackNow(target) &&
-        (result == SPELL_FAILED_OUT_OF_RANGE || result == SPELL_FAILED_LINE_OF_SIGHT);
-}
-
 bool PlayerbotAI::CastPetSpell(uint32 spellId, Unit* target)
 {
     Pet* pet = bot->GetPet();
-    if (CanCastPetSpell(spellId, target))
+    if (pet && spellId && pet->HasSpell(spellId))
     {
         auto IsAutocastActive = [&pet, &spellId]() -> bool
         {
