@@ -111,11 +111,6 @@ bool PlayerbotAIConfig::Initialize()
     dispelAuraDuration = config.GetIntDefault("AiPlayerbot.DispelAuraDuration", 2000);
     reactDelay = (uint32) config.GetIntDefault("AiPlayerbot.ReactDelay", 100);
     passiveDelay = (uint32) config.GetIntDefault("AiPlayerbot.PassiveDelay", 4000);
-    valueCacheCleanupInterval = (uint32) config.GetIntDefault("AiPlayerbot.ValueCacheCleanupInterval", 60000);
-    failedActionRetryBase = (uint32) config.GetIntDefault("AiPlayerbot.FailedActionRetryBase", 250);
-    failedActionRetryMax = (uint32) config.GetIntDefault("AiPlayerbot.FailedActionRetryMax", 2000);
-    failedActionCacheTtl = (uint32) std::max<int32>(1000, config.GetIntDefault("AiPlayerbot.FailedActionCacheTtl", 30000));
-    failedActionCacheMaxEntries = (uint32) std::max<int32>(8, config.GetIntDefault("AiPlayerbot.FailedActionCacheMaxEntries", 64));
     repeatDelay = (uint32) config.GetIntDefault("AiPlayerbot.RepeatDelay", 5000);
     errorDelay = (uint32) config.GetIntDefault("AiPlayerbot.ErrorDelay", 5000);
     rpgDelay = (uint32) config.GetIntDefault("AiPlayerbot.RpgDelay", 3000);
@@ -191,7 +186,7 @@ bool PlayerbotAIConfig::Initialize()
     jumpChase = config.GetBoolDefault("AiPlayerbot.JumpChase", true);
     useKnockback = config.GetBoolDefault("AiPlayerbot.UseKnockback", true);
 
-        iterationsPerTick = config.GetIntDefault("AiPlayerbot.IterationsPerTick", 10);
+    iterationsPerTick = config.GetIntDefault("AiPlayerbot.IterationsPerTick", 100);
 
     allowGuildBots = config.GetBoolDefault("AiPlayerbot.AllowGuildBots", true);
     allowMultiAccountAltBots = config.GetBoolDefault("AiPlayerbot.AllowMultiAccountAltBots", true);
@@ -241,9 +236,6 @@ bool PlayerbotAIConfig::Initialize()
     randomBotTeleportMaxInterval = config.GetIntDefault("AiPlayerbot.RandomBotTeleportTeleportMaxInterval", 48 * 3600);
     randomBotsMaxLoginsPerInterval = config.GetIntDefault("AiPlayerbot.RandomBotsMaxLoginsPerInterval", 10);
     randomBotsPerInterval = config.GetIntDefault("AiPlayerbot.RandomBotsPerInterval", 0);
-    randomBotLoginDbQueueLimit = config.GetIntDefault("AiPlayerbot.RandomBotLoginDbQueueLimit", 256);
-    randomBotDatabasePingInterval = config.GetIntDefault("AiPlayerbot.RandomBotDatabasePingInterval", 10000);
-    performanceMapScanInterval = config.GetIntDefault("AiPlayerbot.PerformanceMapScanInterval", 30000);
     minRandomBotsPriceChangeInterval = config.GetIntDefault("AiPlayerbot.MinRandomBotsPriceChangeInterval", 2 * 3600);
     maxRandomBotsPriceChangeInterval = config.GetIntDefault("AiPlayerbot.MaxRandomBotsPriceChangeInterval", 48 * 3600);
     //Auction house settings

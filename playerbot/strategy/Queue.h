@@ -1,9 +1,5 @@
 #include "ActionBasket.h"
 
-#include <iterator>
-#include <map>
-#include <unordered_map>
-
 #pragma once
 namespace ai
 {
@@ -20,8 +16,6 @@ public:
 	int Size();
 	void RemoveExpired();
 private:
-    using RelevanceQueue = std::multimap<float, ActionBasket*>;
-    RelevanceQueue actions;
-    std::unordered_map<std::string, RelevanceQueue::iterator> actionsByName;
+	std::list<ActionBasket*> actions;
 };
 }

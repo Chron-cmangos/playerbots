@@ -1,6 +1,4 @@
 #pragma once
-
-#include <atomic>
 #include "PlayerbotMgr.h"
 #include "PlayerbotAIBase.h"
 #include "strategy/AiObjectContext.h"
@@ -408,7 +406,7 @@ public:
 	PlayerbotAI(Player* bot);
 	virtual ~PlayerbotAI();
 
-    virtual void UpdateAI(uint32 elapsed, bool minimal = false, bool delayAlreadyAdvanced = false);
+    virtual void UpdateAI(uint32 elapsed, bool minimal = false);
 
     void HandleCommands();
 private:
@@ -445,11 +443,6 @@ public:
     void HandleMasterIncomingPacket(const WorldPacket& packet);
     void HandleMasterOutgoingPacket(const WorldPacket& packet);
 	void HandleTeleportAck();
-    uint32 GetTransitionGeneration() const { return transitionGeneration.load(std::memory_order_acquire); }
-    bool IsTransitionContextCurrent(uint32 generation, uint32 mapId, uint32 instanceId) const;
-    static void RecordDiscardedTransitionWork();
-    static uint64 ConsumeDiscardedTransitionWork();
-    static uint64 ConsumeTransitionRequests();
     void ChangeEngine(BotState type);
     void DoNextAction(bool minimal = false);
     bool CanDoSpecificAction(const std::string& name, bool isUseful = true, bool isPossible = true);
@@ -763,10 +756,6 @@ public:
 private:
     bool UpdateAIReaction(uint32 elapsed, bool minimal, bool isStunned);
     void UpdateFaceTarget(uint32 elapsed, bool minimal);
-    void RequestUrgentTransition(uint32 triggerId);
-    void PrepareForUrgentTransition();
-    bool ProcessPendingTransition();
-    void ClearPendingTransition(uint32 expectedTriggerId = 0, bool stopMovement = false);
 
 protected:
 	Player* bot;
@@ -785,27 +774,6 @@ protected:
     std::queue<ChatCommandHolder> chatCommands;
     std::queue<ChatQueuedReply> chatReplies;
     std::mutex chatRepliesMutex;
-    // A login/map transition can expose the same bot to two update paths for
-    // a short window. Never execute its mutable AI context concurrently.
-    std::mutex updateExecutionMutex;
-    // Map/instance transitions invalidate movement and AI work calculated in
-    // the previous world context. These atomics are also read by Arch2 worker
-    // queues without touching mutable AI state.
-    std::atomic<uint32> transitionGeneration{1};
-    std::atomic<bool> urgentTransitionPending{false};
-    struct PendingTransitionState
-    {
-        uint32 triggerId = 0;
-        uint32 sourceMapId = 0;
-        uint32 sourceInstanceId = 0;
-        uint32 startedAtMs = 0;
-        uint32 lastAttemptAtMs = 0;
-        uint32 attempts = 0;
-    };
-    std::mutex pendingTransitionMutex;
-    PendingTransitionState pendingTransition;
-    static std::atomic<uint64> discardedTransitionWork;
-    static std::atomic<uint64> transitionRequests;
     PacketHandlingHelper botOutgoingPacketHandlers;
     PacketHandlingHelper masterIncomingPacketHandlers;
     PacketHandlingHelper masterOutgoingPacketHandlers;
@@ -824,7 +792,6 @@ protected:
     uint32 jumpTime;
     bool fallAfterJump;
     uint32 faceTargetUpdateDelay;
-    uint32 lastValueCacheCleanupMs = 0;
     bool isPlayerFriend = false;
     bool isMovingToTransport = false;
     bool shouldLogOut = false;

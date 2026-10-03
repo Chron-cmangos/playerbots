@@ -6,7 +6,6 @@
 #include "NamedObjectContext.h"
 #include "Strategy.h"
 #include <set>
-#include <atomic>
 
 namespace ai
 {
@@ -84,11 +83,6 @@ namespace ai
             return valueContexts.GetCreated();
         }
 
-        size_t GetCreatedStrategyCount() const { return strategyContexts.GetCreatedCount(); }
-        size_t GetCreatedActionCount() const { return actionContexts.GetCreatedCount(); }
-        size_t GetCreatedTriggerCount() const { return triggerContexts.GetCreatedCount(); }
-        size_t GetCreatedValueCount() const { return valueContexts.GetCreatedCount(); }
-
         void GetSupportedStrategies(std::set<std::string>& strategies)
         {
             return strategyContexts.GetSupportedKeys(strategies);
@@ -111,8 +105,7 @@ namespace ai
 
         void ClearValues(std::string findName = "");
 
-        size_t ClearExpiredValues(std::string findName = "", uint32 interval = 0);
-        static uint64 GetExpiredValuesReleased();
+        void ClearExpiredValues(std::string findName = "", uint32 interval = 0);
 
         std::string FormatValues(std::string findName = "");
 
@@ -127,8 +120,6 @@ namespace ai
         void Load(std::list<std::string> data);
 
         std::vector<std::string> performanceStack;
-    private:
-        static std::atomic<uint64> expiredValuesReleased;
     protected:
         NamedObjectContextList<Strategy> strategyContexts;
         NamedObjectContextList<Action> actionContexts;

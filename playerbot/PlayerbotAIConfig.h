@@ -115,8 +115,7 @@ public:
     bool allowGuildBots;
     bool allowMultiAccountAltBots;
     uint32 globalCoolDown, reactDelay, maxWaitForMove, expireActionTime, dispelAuraDuration, passiveDelay, repeatDelay,
-        errorDelay, rpgDelay, sitDelay, returnDelay, lootDelay, valueCacheCleanupInterval,
-        failedActionRetryBase, failedActionRetryMax, failedActionCacheTtl, failedActionCacheMaxEntries;
+        errorDelay, rpgDelay, sitDelay, returnDelay, lootDelay;
     float sightDistance, spellDistance, reactDistance, grindDistance, lootDistance, groupMemberLootDistance, groupMemberLootDistanceWithActiveMaster,
         gatheringDistance, groupMemberGatheringDistance, groupMemberGatheringDistanceWithActiveMaster, shootDistance,
         fleeDistance, tooCloseDistance, meleeDistance, followDistance, raidFollowDistance, wanderMinDistance, wanderMaxDistance, whisperDistance, contactDistance,
@@ -172,8 +171,6 @@ public:
     uint32 minRandomBotPvpTime, maxRandomBotPvpTime;
     uint32 randomBotsMaxLoginsPerInterval;
     uint32 randomBotsPerInterval;
-    uint32 randomBotLoginDbQueueLimit;
-    uint32 randomBotDatabasePingInterval, performanceMapScanInterval;
     uint32 minRandomBotsPriceChangeInterval, maxRandomBotsPriceChangeInterval;
     //Auction house settings
     bool shouldQueryAHListingsOutsideOfAH;
