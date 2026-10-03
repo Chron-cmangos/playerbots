@@ -1482,6 +1482,13 @@ void PlayerbotAI::HandleTeleportAck()
 
 void PlayerbotAI::Reset(bool full)
 {
+    // Do not block a map worker behind another map worker that is already
+    // updating this bot. The current update owns the complete mutable AI
+    // context; a duplicate transition-frame update is safe to skip.
+    std::unique_lock<std::mutex> updateLock(updateExecutionMutex, std::try_to_lock);
+    if (!updateLock.owns_lock())
+        return;
+
     AiObjectContext* context = aiObjectContext;
 
     if (bot->IsTaxiFlying())
