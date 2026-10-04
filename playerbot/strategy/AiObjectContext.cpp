@@ -62,17 +62,30 @@ void AiObjectContext::ClearValues(std::string findName)
 
 size_t AiObjectContext::ClearExpiredValues(std::string findName, uint32 interval)
 {
-    const size_t erased = valueContexts.EraseIf([&](const std::string& name, UntypedValue* value)
-    {
-        if (!value || value->Protected())
-            return false;
-        if (!findName.empty() && name.find(findName) == std::string::npos)
-            return false;
-        return interval ? value->Expired(interval) : value->Expired();
-    });
+    std::vector<std::string> namesToErase;
+    std::set<std::string> names = valueContexts.GetCreated();
 
-    expiredValuesReleased.fetch_add(erased, std::memory_order_relaxed);
-    return erased;
+    for (const auto& name : names)
+    {
+        UntypedValue* value = GetUntypedValue(name);
+        if (!value || value->Protected())
+            continue;
+
+        if (!findName.empty() && name.find(findName) == std::string::npos)
+            continue;
+
+        if ((!interval && !value->Expired()) || (interval && !value->Expired(interval)))
+            continue;
+
+        namesToErase.push_back(name);
+    }
+
+    for (const auto& name : namesToErase)
+    {
+        valueContexts.Erase(name);
+    }
+    expiredValuesReleased.fetch_add(namesToErase.size(), std::memory_order_relaxed);
+    return namesToErase.size();
 }
 
 
