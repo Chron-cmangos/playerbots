@@ -220,11 +220,8 @@ namespace ai
     {
     public:
         CastSapAction(PlayerbotAI* ai) : CastMeleeSpellAction(ai, "sap") {}
-
-        virtual Value<ObjectGuid>* GetTargetValue()
-        {
-            return context->GetValue<ObjectGuid>("cc target", getName());
-        }
+        std::string GetTargetName() override { return "cc target"; }
+        std::string GetTargetQualifier() override { return GetSpellName(); }
 
         virtual bool isUseful() override { return true; }
     };
