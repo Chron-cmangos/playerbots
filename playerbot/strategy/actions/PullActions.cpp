@@ -53,6 +53,7 @@ bool PullRequestAction::Execute(Event& event)
     posMap["pull"] = pullPosition;
 
     strategy->RequestPull(target);
+    strategy->SetRequester(requester ? requester->GetObjectGuid() : ObjectGuid());
 
     // Force change combat state to have a faster reaction time
     ai->OnCombatStarted();
@@ -106,7 +107,7 @@ bool PullStartAction::Execute(Event& event)
             if (pet)
             {
                 UnitAI* creatureAI = ((Creature*)pet)->AI();
-                if (creatureAI)
+                if (creatureAI && !strategy->HasSavedPetReactState())
                 {
                     strategy->SetPetReactState(creatureAI->GetReactState());
                     creatureAI->SetReactState(REACT_PASSIVE);
@@ -136,6 +137,16 @@ bool PullAction::Execute(Event& event)
         Unit* target = strategy->GetTarget();
         if (target)
         {
+            if (ai->IsMelee(bot) && bot->CanReachWithMeleeAttack(target))
+            {
+                SET_AI_VALUE(Unit*, "current target", target);
+                if (ai->DoSpecificAction("melee", event, true))
+                {
+                    strategy->OnPullActionIssued();
+                    return true;
+                }
+                return false;
+            }
             // Check if we are on pull range
             const float distanceToTarget = target->GetDistance(bot);
             if (distanceToTarget <= strategy->GetRange())
@@ -154,7 +165,7 @@ bool PullAction::Execute(Event& event)
                 SET_AI_VALUE(ObjectGuid, "current target", GetTarget()->GetObjectGuid());
                 if (ai->DoSpecificAction(actionName, event, true))
                 {
-                    strategy->RequestPull(target); //extend pull timer to walk back.
+                    strategy->OnPullActionIssued(); // One accepted shot; keep the original deadline.
                     return true;
                 }
                 else
@@ -171,6 +182,15 @@ bool PullAction::Execute(Event& event)
     return false;
 }
 
+bool PullAction::isUseful()
+{
+    // This action can outlive a weapon or strategy change. Refresh the
+    // strategy's spell before the inherited capability check runs.
+    InitPullAction();
+    PullStrategy* strategy = PullStrategy::Get(ai);
+    return strategy && !strategy->HasPullActionIssued() && CastSpellAction::isUseful();
+}
+
 bool PullAction::isPossible()
 {
     InitPullAction();
@@ -182,6 +202,8 @@ bool PullAction::isPossible()
         Unit* target = strategy->GetTarget();
         if (!spellName.empty() && target)
         {
+            if (ai->IsMelee(bot) && bot->CanReachWithMeleeAttack(target))
+                return true;
             if (!ai->CanCastSpell(spellName, target, true, nullptr, true))
             {
                 return false;
@@ -198,6 +220,11 @@ void PullAction::InitPullAction()
     PullStrategy* strategy = PullStrategy::Get(ai);
     if (strategy)
     {
+        Unit* pullTarget = strategy->GetTarget();
+        const bool engaged = pullTarget && pullTarget->IsInWorld() && bot->IsInMap(pullTarget) &&
+            pullTarget->IsAlive() && pullTarget->IsInCombat();
+        const bool expired = time(nullptr) - strategy->GetPullStartTime() >= strategy->GetMaxPullTime();
+        const ObjectGuid requesterGuid = strategy->GetRequester();
         std::string spellName = strategy->GetSpellName();
         if (!spellName.empty())
         {
@@ -222,7 +249,7 @@ bool PullEndAction::Execute(Event& event)
         if (pet)
         {
             UnitAI* creatureAI = ((Creature*)pet)->AI();
-            if (creatureAI)
+            if (creatureAI && strategy->HasSavedPetReactState())
             {
                 creatureAI->SetReactState(strategy->GetPetReactState());
                 Unit* target = ai->GetUnit(AI_VALUE(ObjectGuid, "current target"));
@@ -241,6 +268,21 @@ bool PullEndAction::Execute(Event& event)
         }
 
         strategy->OnPullEnded();
+        if (engaged)
+        {
+            SET_AI_VALUE(Unit*, "current target", pullTarget);
+            ai->OnCombatStarted();
+            // Uses ordinary attack/encounter validation, not fabricated threat.
+            if (ai->IsMelee(bot)) ai->DoSpecificAction("melee", event, true);
+        }
+        else if (expired)
+        {
+            if (AI_VALUE(Unit*, "current target") == pullTarget)
+                SET_AI_VALUE(Unit*, "current target", nullptr);
+            Unit* requester = requesterGuid ? ai->GetUnit(requesterGuid) : nullptr;
+            if (requester && requester->IsPlayer())
+                ai->TellPlayerNoFacing(static_cast<Player*>(requester), "Pull stopped: the target did not engage before the timeout.");
+        }
         return true;
     }
 
