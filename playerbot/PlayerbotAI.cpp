@@ -707,6 +707,10 @@ void PlayerbotAI::UpdateFaceTarget(uint32 elapsed, bool minimal)
                 Unit* target = bot->GetPlayerbotAI()->GetUnit(AI_VALUE(ObjectGuid, "current target"));
                 if(target)
                 {
+                    // Safety check inside the visibility/facing branch
+                    if (!bot->IsInWorld() || bot->IsBeingTeleportedFar())
+                        return;
+
                     // Do not update the facing while pulling
                     Unit* pullTarget = bot->GetPlayerbotAI()->GetUnit(AI_VALUE(ObjectGuid, "pull target"));
                     if (pullTarget == nullptr)
@@ -3166,6 +3170,10 @@ Unit* PlayerbotAI::GetUnit(ObjectGuid guid)
     if (!guid)
         return NULL;
 
+    // Direct access to 'bot' is safe in non-const functions
+    if (!bot || !bot->IsInWorld() || bot->IsBeingTeleportedFar())
+        return NULL;
+
     Map* map = bot->GetMap();
     if (!map)
         return NULL;
@@ -3199,6 +3207,10 @@ Creature* PlayerbotAI::GetCreature(ObjectGuid guid) const
     if (!guid)
         return NULL;
 
+    // Inside a const function, use this->bot and const_cast to evaluate non-const methods
+    if (!this->bot || !this->bot->IsInWorld() || const_cast<Player*>(this->bot)->IsBeingTeleportedFar())
+        return NULL;
+
     Map* map = bot->GetMap();
     if (!map)
         return NULL;
@@ -3211,6 +3223,10 @@ Creature* PlayerbotAI::GetAnyTypeCreature(ObjectGuid guid) const
     if (!guid)
         return NULL;
 
+    // Inside a const function, use this->bot and const_cast to evaluate non-const methods
+    if (!this->bot || !this->bot->IsInWorld() || const_cast<Player*>(this->bot)->IsBeingTeleportedFar())
+        return NULL;
+
     Map* map = bot->GetMap();
     if (!map)
         return NULL;
@@ -3221,6 +3237,10 @@ Creature* PlayerbotAI::GetAnyTypeCreature(ObjectGuid guid) const
 GameObject* PlayerbotAI::GetGameObject(ObjectGuid guid)
 {
     if (!guid)
+        return NULL;
+
+    // Corrected: Using standard pointer variable access inside non-static member method
+    if (!bot || !bot->IsInWorld() || bot->IsBeingTeleportedFar())
         return NULL;
 
     Map* map = bot->GetMap();
@@ -3253,6 +3273,10 @@ GameObject* PlayerbotAI::GetGameObject(GameObjectDataPair const* gameObjectDataP
 WorldObject* PlayerbotAI::GetWorldObject(ObjectGuid guid)
 {
     if (!guid)
+        return NULL;
+
+    // Corrected: Using standard pointer variable access inside non-static member method
+    if (!bot || !bot->IsInWorld() || bot->IsBeingTeleportedFar())
         return NULL;
 
     Map* map = bot->GetMap();
