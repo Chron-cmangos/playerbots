@@ -278,9 +278,6 @@ public:
     public:
         CastSteadyShotAction(PlayerbotAI* ai) : CastSpellAction(ai, "steady shot") {}
         virtual bool Execute(Event& event);
-
-    private:
-        uint32 weaponDelay;
     };
 
     class TrapOnTargetAction : public CastSpellAction
@@ -326,7 +323,9 @@ public:
         bool isPossible() override
         {
             // If the trap spell and feign death are not on cooldown
-            return sServerFacade.IsSpellReady(bot, trapSpellID) && sServerFacade.IsSpellReady(bot, 5384);
+            trapSpellID = AI_VALUE2(uint32, "spell id", trapSpell);
+            return trapSpellID && ai->HasSpell(trapSpellID) &&
+                CastSpellAction::isPossible() && sServerFacade.IsSpellReady(bot, trapSpellID);
         }
 
         NextAction** getContinuers() override
@@ -459,7 +458,7 @@ private:
 
         bool isUseful() override
         {
-            return ai->GetUnit(AI_VALUE(ObjectGuid, "pet target"));
+            return CastSpellAction::isUseful() && ai->GetUnit(AI_VALUE(ObjectGuid, "pet target"));
         }
     };
 

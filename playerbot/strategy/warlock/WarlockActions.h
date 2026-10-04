@@ -294,8 +294,9 @@ namespace ai
 
         bool isUseful() override
         {
+            if (!CastBuffSpellAction::isUseful()) return false;
             Unit* pet = ai->GetUnit(AI_VALUE(ObjectGuid, "pet target"));
-            if (pet)
+            if (pet && pet->IsAlive())
             {
                 return pet->GetEntry() != 416;
             }
@@ -312,8 +313,9 @@ namespace ai
 
         bool isUseful() override
         {
+            if (!CastSpellAction::isUseful()) return false;
             Unit* pet = ai->GetUnit(AI_VALUE(ObjectGuid, "pet target"));
-            if (pet)
+            if (pet && pet->IsAlive())
             {
                 return pet->GetEntry() != 1863;
             }
@@ -330,8 +332,9 @@ namespace ai
 
         bool isUseful() override
         {
+            if (!CastSpellAction::isUseful()) return false;
             Unit* pet = ai->GetUnit(AI_VALUE(ObjectGuid, "pet target"));
-            if (pet)
+            if (pet && pet->IsAlive())
             {
                 return pet->GetEntry() != 417;
             }
@@ -348,8 +351,9 @@ namespace ai
 
         bool isUseful() override
         {
+            if (!CastSpellAction::isUseful()) return false;
             Unit* pet = ai->GetUnit(AI_VALUE(ObjectGuid, "pet target"));
-            if (pet)
+            if (pet && pet->IsAlive())
             {
                 return pet->GetEntry() != 1860;
             }
@@ -366,8 +370,9 @@ namespace ai
 
         bool isUseful() override
         {
+            if (!CastSpellAction::isUseful()) return false;
             Unit* pet = ai->GetUnit(AI_VALUE(ObjectGuid, "pet target"));
-            if (pet)
+            if (pet && pet->IsAlive())
             {
                 return pet->GetEntry() != 17252;
             }
@@ -380,7 +385,7 @@ namespace ai
 	{
 	public:
 		CastSummonInfernoAction(PlayerbotAI* ai) : CastSpellAction(ai, "inferno") {}
-		virtual bool isPossible() { return true; }
+		bool isPossible() override { return CastSpellAction::isPossible(); }
 	};
 
 	class CastCreateHealthstoneAction : public CastSpellAction
@@ -482,7 +487,7 @@ namespace ai
     public:
         CastLifeTapAction(PlayerbotAI* ai) : CastSpellAction(ai, "life tap") {}
         virtual std::string GetTargetName() override { return "self target"; }
-        virtual bool isUseful() override { return AI_VALUE2(uint8, "health", "self target") > sPlayerbotAIConfig.lowHealth; }
+        virtual bool isUseful() override { return CastSpellAction::isUseful() && bot->GetHealthPercent() > sPlayerbotAIConfig.lowHealth; }
     };
 
     class CastAmplifyCurseAction : public CastBuffSpellAction

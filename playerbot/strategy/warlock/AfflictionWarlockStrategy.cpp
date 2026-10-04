@@ -770,10 +770,6 @@ void AfflictionWarlockStrategy::InitCombatTriggers(std::list<TriggerNode*>& trig
     triggers.push_back(new TriggerNode(
         "unstable affliction",
         NextAction::array(0, new NextAction("unstable affliction", ACTION_NORMAL + 1), NULL)));
-
-    triggers.push_back(new TriggerNode(
-        "siphon life",
-        NextAction::array(0, new NextAction("siphon life", ACTION_NORMAL), NULL)));
 }
 
 void AfflictionWarlockStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -870,10 +866,6 @@ void AfflictionWarlockAoeStrategy::InitCombatTriggers(std::list<TriggerNode*>& t
     triggers.push_back(new TriggerNode(
         "unstable affliction on attacker",
         NextAction::array(0, new NextAction("unstable affliction on attacker", ACTION_HIGH + 4), NULL)));
-
-    triggers.push_back(new TriggerNode(
-        "siphon life on attacker",
-        NextAction::array(0, new NextAction("siphon life on attacker", ACTION_HIGH + 3), NULL)));
 }
 
 void AfflictionWarlockAoeStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
