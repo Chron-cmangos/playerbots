@@ -717,7 +717,7 @@ void SurvivalHunterStrategy::InitCombatTriggers(std::list<TriggerNode*>& trigger
 
     triggers.push_back(new TriggerNode(
         "explosive shot",
-        NextAction::array(0, new NextAction("explosive shot", ACTION_HIGH + 3), NULL)));
+        NextAction::array(0, new NextAction("explosive shot", ACTION_NORMAL + 3), NULL)));
 }
 
 void SurvivalHunterStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)

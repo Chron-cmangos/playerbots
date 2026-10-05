@@ -1,6 +1,5 @@
 #pragma once
 #include "playerbot/strategy/Value.h"
-#include <ctime>
 
 class Unit;
 
@@ -39,9 +38,6 @@ namespace ai
     public:
         PetIsDeadValue(PlayerbotAI* ai, std::string name = "pet dead") : BoolCalculatedValue(ai, name) {}
         virtual bool Calculate() override;
-    private:
-        time_t lastSavedPetCheck = 0;
-        bool savedPetDead = false;
     };
 
     class PetIsHappyValue : public BoolCalculatedValue
