@@ -36,7 +36,7 @@ namespace ai
             if (!previous.empty())
             {
                 // A player-selected seal, recast or natural expiry cancels ownership.
-                if (!wisdom || wisdom->GetAuraApplyMSTime() != applied)
+                if (!wisdom || wisdom != applied)
                 {
                     previous.clear();
                     return false;
