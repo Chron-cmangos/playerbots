@@ -97,6 +97,12 @@ bool CastSpellAction::isPossible()
     if (!spellTarget)
         return false;
 
+    // Native hunter ranged checks include this target's reach and the
+    // expansion's minimum range. Do not reject them with a caster-only estimate.
+    const SpellEntry* nativeSpell = sServerFacade.LookupSpellInfo(spellId);
+    if (bot->getClass() == CLASS_HUNTER && nativeSpell->HasAttribute(SPELL_ATTR_USES_RANGED_SLOT))
+        return ai->CanCastSpell(spellName, spellTarget, 0);
+
     bool canReach = false;
     if (spellTarget == bot)
     {
@@ -151,8 +157,12 @@ bool CastSpellAction::isUseful()
     if (!spellTarget)
         return false;
 
-    if (!spellTarget->IsInWorld() || spellTarget->GetMapId() != bot->GetMapId())
+    if (!bot->IsInWorld() || bot->IsBeingTeleported() || !spellTarget->IsInWorld() || !bot->IsInMap(spellTarget))
         return false;
+
+    if (bot->getClass() == CLASS_HUNTER && spellTarget != bot &&
+        getThreatType() != ActionThreatType::ACTION_THREAT_NONE &&
+        spellTarget->HasBreakableByDamageCrowdControlAura() && bot->CanAttack(spellTarget)) return false;
 
     const SpellEntry* pSpellInfo = sServerFacade.LookupSpellInfo(spellId);
     if (pSpellInfo)
