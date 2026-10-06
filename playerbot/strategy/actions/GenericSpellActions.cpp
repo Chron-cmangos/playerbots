@@ -20,6 +20,7 @@ CastSpellAction::CastSpellAction(PlayerbotAI* ai, std::string spell)
 
 bool CastSpellAction::Execute(Event& event)
 {
+    RefreshSpellId();
     bool executed = false;
     uint32 spellDuration = sPlayerbotAIConfig.globalCoolDown;
     if (spellName == "conjure food" || spellName == "conjure water")
@@ -80,6 +81,7 @@ bool CastSpellAction::Execute(Event& event)
 
 bool CastSpellAction::isPossible()
 {
+    RefreshSpellId();
     if (spellName == "mount")
     {
         if (!bot->IsMounted() && !bot->IsInCombat())
@@ -151,6 +153,7 @@ bool CastSpellAction::ShouldTryAlternativesWhenUseless()
 
 bool CastSpellAction::isUseful()
 {
+    RefreshSpellId();
     if (ai->IsInVehicle() && !ai->IsInVehicle(false, false, true))
         return false;
 
@@ -232,9 +235,10 @@ NextAction** CastSpellAction::getPrerequisites()
 
 void CastSpellAction::SetSpellName(const std::string& name, std::string spellIDContextName /*= "spell id"*/, bool force)
 {
-    if (force || spellName != name)
+    if (force || spellName != name || spellIdContext != spellIDContextName)
     {
         spellName = name;
+        spellIdContext = spellIDContextName;
         spellId = ai->GetAiObjectContext()->GetValue<uint32>(spellIDContextName, name)->Get();
 
         float spellRange;
@@ -243,6 +247,13 @@ void CastSpellAction::SetSpellName(const std::string& name, std::string spellIDC
             range = spellRange;
         }
     }
+}
+
+void CastSpellAction::RefreshSpellId()
+{
+    // Reuse the existing timed spell-ID value. An Action outlives training,
+    // respecs and pet changes; its constructor's ID is not a permanent capability.
+    spellId = ai->GetAiObjectContext()->GetValue<uint32>(spellIdContext, spellName)->Get();
 }
 
 Unit* CastSpellAction::GetTarget()
@@ -254,6 +265,7 @@ Unit* CastSpellAction::GetTarget()
 
 bool CastPetSpellAction::isPossible()
 {
+    RefreshSpellId();
     Unit* spellTarget = GetTarget();
     if (!spellTarget)
         return false;
