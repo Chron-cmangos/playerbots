@@ -697,7 +697,7 @@ namespace ai
                     return false;
                 }
 
-                bot->addUnitState(UNIT_STAND_STATE_SIT);
+                bot->SetStandState(UNIT_STAND_STATE_SIT);
                 ai->InterruptSpell();
 
                 float drinkDuration = AI_VALUE(float, "drink duration");
@@ -708,7 +708,7 @@ namespace ai
 
                 ai->Unmount();
 
-                ai->CastSpell(24355, bot);
+                if (!ai->CastSpell(24355, bot)) return false;
                 SetDuration(drinkDuration);
                 bot->RemoveSpellCooldown(*pSpellInfo);
 
@@ -774,7 +774,7 @@ namespace ai
                     return false;
                 }
 
-                bot->addUnitState(UNIT_STAND_STATE_SIT);
+                bot->SetStandState(UNIT_STAND_STATE_SIT);
                 ai->InterruptSpell();
 
                 float eatDuration = AI_VALUE(float, "eat duration");
@@ -785,7 +785,7 @@ namespace ai
 
                 ai->Unmount();
 
-                ai->CastSpell(24005, bot);
+                if (!ai->CastSpell(24005, bot)) return false;
                 SetDuration(eatDuration);
                 bot->RemoveSpellCooldown(*pSpellInfo);
 
