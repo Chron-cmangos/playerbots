@@ -13,6 +13,7 @@ namespace ai
         virtual bool Execute(Event& event) override;
         virtual bool isPossible() override;
 		virtual bool isUseful() override;
+        bool ShouldTryAlternativesWhenUseless() override;
 
         // Used when this action is executed as a reaction
         bool ShouldReactionInterruptCast() const override { return true; }
