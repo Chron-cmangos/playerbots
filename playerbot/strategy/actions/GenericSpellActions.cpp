@@ -139,16 +139,6 @@ bool CastSpellAction::isPossible()
 	return ai->CanCastSpell(spellName, spellTarget, 0, nullptr, true);
 }
 
-bool CastSpellAction::ShouldTryAlternativesWhenUseless()
-{
-    // Vehicle abilities have their own capability checks and spellbook.
-    if (spellIdContext != "spell id")
-        return false;
-    RefreshSpellId();
-    const SpellEntry* spell = sServerFacade.LookupSpellInfo(spellId);
-    return !spellId || !spell || !ai->HasSpell(spellId) || IsPassiveSpell(spell);
-}
-
 bool CastSpellAction::isUseful()
 {
     if (ai->IsInVehicle() && !ai->IsInVehicle(false, false, true))
