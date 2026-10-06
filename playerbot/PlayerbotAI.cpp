@@ -4860,8 +4860,7 @@ bool PlayerbotAI::CastSpell(uint32 spellId, Unit* target, Item* itemTarget, bool
 	//bot->clearUnitState(UNIT_STAT_FOLLOW);
 
 	bool failWithDelay = false;
-    // Respect native seated-casting permissions for eating and drinking.
-    if (!bot->IsStandState() && !pSpellInfo->HasAttribute(SPELL_ATTR_ALLOW_WHILE_SITTING))
+    if (!bot->IsStandState())
     {
         bot->SetStandState(UNIT_STAND_STATE_STAND);
         failWithDelay = true;
