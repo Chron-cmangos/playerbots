@@ -118,8 +118,7 @@ bool ReactionEngine::FindReaction(bool isStunned)
                                 MultiplyAndPush(reactionNode->getAlternatives(), reactionRelevance + 0.03, false, reactionEvent, "alt");
                             }
                         }
-                        else if ((!isStunned || reaction->isUsefulWhenStunned()) &&
-                            reaction->ShouldTryAlternativesWhenUseless())
+                        else if (!isStunned || reaction->isUsefulWhenStunned())
                         {
                             // Honor the same explicit fallback contract as the
                             // combat engine; ordinary useless actions still stop.

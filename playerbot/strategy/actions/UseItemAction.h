@@ -606,10 +606,6 @@ namespace ai
     public:
         UseDarkRuneAction(PlayerbotAI* ai) : UseItemIdAction(ai, "dark rune") {}
 
-        // Low health, mage restrictions or a skipped rune spell do not make
-        // the independent mana-potion alternative useless.
-        bool ShouldTryAlternativesWhenUseless() override { return true; }
-
         virtual bool isUseful() override
         {
             if(!UseItemIdAction::isUseful())
