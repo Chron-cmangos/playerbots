@@ -20,10 +20,12 @@ code=r'''
 #include <iostream>
 using uint32=unsigned;
 struct Player {unsigned map=542,instance=1;float x=0,y=0,z=0,adjust=0;bool world=true,alive=true,teleport=false,charmed=false;
+ bool pursuit=false,combat=true;bool IsInCombat(){return combat;}bool IsInMap(Player*u){return u&&u->map==map&&u->instance==instance;}
  bool IsInWorld(){return world;}bool IsAlive(){return alive;}bool IsBeingTeleported(){return teleport;}bool HasCharmer(){return charmed;}
  unsigned GetMapId(){return map;}unsigned GetInstanceId(){return instance;}
  void UpdateAllowedPositionZ(float,float,float& z){z+=adjust;}
  float GetDistance(float a,float b,float c){return std::sqrt((x-a)*(x-a)+(y-b)*(y-b)+(z-c)*(z-c));}};
+using Unit=Player;
 struct WorldPosition {unsigned map=542;float x=0,y=0,z=0;static std::vector<WorldPosition> path;static bool legacyPath;
  WorldPosition()=default;WorldPosition(unsigned m,float a,float b,float c):map(m),x(a),y(b),z(c){}
  WorldPosition(Player* b):map(b->map),x(b->x),y(b->y),z(b->z){}
@@ -38,9 +40,13 @@ std::vector<WorldPosition> WorldPosition::path;bool WorldPosition::legacyPath=tr
 using HazardPosition=std::pair<WorldPosition,float>;
 struct Stored {std::list<HazardPosition> hazards;std::list<HazardPosition> Get(){return hazards;}};
 struct Context {Stored stored;template<class T>Stored* GetValue(const char*){return &stored;}};
-struct PlayerbotAI {Player bot;Context context;Player* GetBot(){return &bot;}Context* GetAiObjectContext(){return &context;}};
-namespace ai {struct Point {float x=0,y=0,z=0;};struct EncounterPosition {bool active=true;unsigned map=542,instance=1;Point destination{10,0,0};};
+struct PlayerbotAI {Player bot;Unit*pursuer=nullptr;Unit*GetUnit(unsigned){return pursuer;}Context context;Player* GetBot(){return &bot;}Context* GetAiObjectContext(){return &context;}};
+namespace ai {struct Point {float x=0,y=0,z=0;};struct EncounterPosition {bool active=true;unsigned map=542,instance=1,boss=0,spell=0;Point destination{10,0,0};};
+unsigned CurrentBossPursuitSpell(Player*,Unit*b){return b->pursuit?24646:0;}
+float BossEscapeDistance(Player*,Unit*,unsigned){return 14;}
 namespace encounter {struct Circle {Point center;float radius;};}
+std::list<HazardPosition> ground;
+void AppendMoltenCoreGroundHazards(PlayerbotAI*,std::list<HazardPosition>& out){out.insert(out.end(),ground.begin(),ground.end());}
 std::vector<encounter::Circle> whirlwinds;
 bool AQWhirlwindThreats(PlayerbotAI*,EncounterPosition&,std::vector<encounter::Circle>& out){out=whirlwinds;return !out.empty();}
 bool ValidateEncounterDestination(PlayerbotAI*,EncounterPosition&);
@@ -68,6 +74,11 @@ int main(){
  ai.bot.adjust=0;plan.destination={10,0,0};ai.bot.teleport=true;assert(!ValidateEncounterDestination(&ai,plan));ai.bot.teleport=false;
  plan.instance=2;assert(!ValidateEncounterDestination(&ai,plan));plan.instance=1;
  plan.destination={0,0,0};path.clear();assert(ValidateEncounterDestination(&ai,plan));
+ // Newly spawned MC fire participates before the cached general hazards refresh.
+ ai.bot.map=plan.map=409;plan.destination={10,0,0};ground={{{409,5,0,0},2}};
+ path={{409,0,0,0},{409,10,0,0}};assert(!ValidateEncounterDestination(&ai,plan));
+ path={{409,0,0,0},{409,0,5,0},{409,10,5,0},{409,10,0,0}};assert(ValidateEncounterDestination(&ai,plan));
+ ground.clear();path={{409,0,0,0},{409,10,0,0}};assert(ValidateEncounterDestination(&ai,plan));
  // Uncached Sartura/guard auras must constrain the whole route as well.
  ai.bot.map=plan.map=531;plan.destination={30,0,0};
  whirlwinds={{{-1,0,0},12},{{15,0,0},12}};
@@ -79,6 +90,14 @@ int main(){
  path={{531,0,0,0},{531,30,0,0}};assert(ValidateEncounterDestination(&ai,plan));
  path={{531,0,0,0},{531,-2,0,0},{531,30,0,0}};assert(!ValidateEncounterDestination(&ai,plan));
  whirlwinds.clear();assert(ValidateEncounterDestination(&ai,plan));
+ // Chased players cannot take a path through the pursuer to a clear endpoint.
+ ai.bot.map=plan.map=309;Unit pursuer;pursuer.map=309;pursuer.x=-3;pursuer.pursuit=true;
+ ai.pursuer=&pursuer;plan.boss=1;plan.spell=24646;
+ path={{309,0,0,0},{309,30,0,0}};assert(ValidateEncounterDestination(&ai,plan));
+ path={{309,0,0,0},{309,-4,0,0},{309,30,0,0}};assert(!ValidateEncounterDestination(&ai,plan));
+ pursuer.pursuit=false;assert(ValidateEncounterDestination(&ai,plan));pursuer.pursuit=true;
+ pursuer.x=15;assert(!ValidateEncounterDestination(&ai,plan));
+ path={{309,0,0,0},{309,0,15,0},{309,30,15,0},{309,30,0,0}};assert(ValidateEncounterDestination(&ai,plan));
  std::cout<<"PASS: actual encounter endpoint and bounded route validation, crossing/outward hazards and lifecycle gates\n";
 }
 '''.replace('__HELPERS__',helpers).replace('__METHOD__',method)

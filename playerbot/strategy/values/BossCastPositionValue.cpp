@@ -6,7 +6,7 @@ using namespace ai;
 
 bool ai::IsBossEscapeMap(uint32 map)
 {
-    if (map == 531) return true;
+    if (map == 309 || map == 531 || map == 533) return true;
 #ifndef MANGOSBOT_ZERO
     if (map == 532 || map == 542 || map == 550 || map == 552 || map == 553 || map == 555) return true;
 #endif
@@ -20,10 +20,15 @@ uint32 ai::NativeBossEscapeSpell(uint32 map, uint32 entry, uint32 cast, bool reg
 {
     if (map == 531 && entry == 15516 && cast == 26083) return 26084;
     if (map == 531 && entry == 15984 && cast == 26038) return 26686;
+    if (map == 533 && entry == 15956 && cast == 28785) return cast; // Anub'Rekhan's Locust Swarm, including its periodic damage payload.
+#ifdef MANGOSBOT_TWO
+    if (map == 533 && entry == 15956 && cast == 54021) return cast; // Wrath 25-player swarm.
+#endif
     // These are verified caster-centred escape mechanics, not an assumption
     // that every damaging AoE should be fled. All other casts retain normal AI.
 #ifndef MANGOSBOT_ZERO
     if (map == 532 && entry == 16524 && cast == 29973) return cast; // Aran
+    if (map == 532 && entry == 15690 && cast == 30852) return cast; // Prince Malchezaar: Shadow Nova, especially during Enfeeble.
     if (map == 542 && entry == 17377 && cast == 30940) return regular ? 33775 : 37371; // Keli'dan warning aura
     if (map == 552 && entry == 20885 && cast == 36142) return cast; // Dalliah: native periodic trigger carries radius.
     if (map == 550 && entry == 19516 && cast == 34162) return 34164; // Void Reaver Pounding channel
@@ -55,6 +60,7 @@ const Spell* ai::CurrentBossEscapeCast(Player* bot, Unit* boss)
     // Keep the active tank planted during Pounding; other melee can leave its
     // native radius without dragging the boss or synthesizing a taunt.
     if (bot->GetMapId() == 550 && boss->GetEntry() == 19516 && boss->GetVictim() == bot) return nullptr;
+    if (bot->GetMapId() == 532 && boss->GetEntry() == 15690 && boss->GetVictim() == bot) return nullptr;
     for (auto slot : {CURRENT_GENERIC_SPELL, CURRENT_CHANNELED_SPELL})
     {
         const Spell* spell = boss->GetCurrentSpell(slot);
@@ -67,12 +73,24 @@ const Spell* ai::CurrentBossEscapeCast(Player* bot, Unit* boss)
 uint32 ai::CurrentBossEscapeSpell(Player* bot, Unit* boss)
 {
     if (!bot || !boss) return 0;
+    if (uint32 pursuit = CurrentBossPursuitSpell(bot, boss)) return pursuit;
+    if (bot->GetMapId() == 533 && boss->GetEntry() == 15956)
+    {
+        if (boss->HasAura(28785)) return 28785;
+#ifdef MANGOSBOT_TWO
+        if (boss->HasAura(54021)) return 54021;
+#endif
+    }
     if (bot->GetMapId() == 531)
     {
         const uint32 aura = boss->GetEntry() == 15516 ? 26083 : boss->GetEntry() == 15984 ? 26038 : 0;
         return aura && boss->GetSpellAuraHolder(aura, boss->GetObjectGuid()) ? aura : 0;
     }
 #ifndef MANGOSBOT_ZERO
+    // Enfeeble precedes Shadow Nova. Waiting until the short Nova cast starts
+    // leaves a one-health melee bot too little time to clear the blast radius.
+    if (bot->GetMapId() == 532 && boss->GetEntry() == 15690 &&
+        bot->GetSpellAuraHolder(30843, boss->GetObjectGuid())) return 30852;
     // Burning Nova is triggered instantly. Its warning aura gates the native
     // Fire Nova action, so watching only an active spell misses the escape window.
     if (bot->GetMapId() == 542 && boss->GetEntry() == 17377 && boss->HasAura(30940)) return 30940;
@@ -80,6 +98,39 @@ uint32 ai::CurrentBossEscapeSpell(Player* bot, Unit* boss)
 #endif
     const Spell* spell = CurrentBossEscapeCast(bot, boss);
     return spell ? spell->m_spellInfo->Id : 0;
+}
+
+uint32 ai::CurrentBossPursuitSpell(Player* bot, Unit* boss)
+{
+    if (!bot || !boss || boss->GetVictim() != bot) return 0;
+    if (bot->GetMapId() == 309 && boss->GetEntry() == 15082 && boss->HasAura(24646)) return 24646;
+#ifndef MANGOSBOT_ZERO
+    // The native Opera aura script fixates through 30753, not the selection
+    // spell 30769 or appearance spell 30768. Observe the actual boss caster.
+    if (bot->GetMapId() == 532 && boss->GetEntry() == 17521 &&
+        bot->GetSpellAuraHolder(30753, boss->GetObjectGuid())) return 30753;
+#endif
+    return 0;
+}
+
+float ai::BossEscapeDistance(Player* bot, Unit* boss, uint32 spell)
+{
+    if (!bot || !boss || !spell) return 0;
+    if (spell == CurrentBossPursuitSpell(bot, boss))
+    {
+        // This is a melee kiting margin, not an invented spell damage radius.
+        // Recompute as the pursued target/boss moves, including scaled reach.
+        const float reach = boss->GetCombatReach() + bot->GetCombatReach();
+        return std::isfinite(reach) && reach >= 0 && reach <= 25 ? std::max(14.0f, reach + 8.0f) : 0;
+    }
+    bool regular = true;
+#ifndef MANGOSBOT_ZERO
+    regular = bot->GetMap()->IsRegularDifficulty();
+#endif
+    const uint32 damage = NativeBossEscapeSpell(bot->GetMapId(), boss->GetEntry(), spell, regular);
+    if (!damage) return 0;
+    const float radius = NativeEncounterSpellRadius(damage);
+    return std::isfinite(radius) && radius > 0 && radius <= 35 ? radius + 2 : 0;
 }
 
 EncounterPosition BossCastPositionValue::Calculate()
@@ -117,16 +168,10 @@ EncounterPosition BossCastPositionValue::Calculate()
             if (PlanLokenClosePosition(ai, boss, plan)) return plan;
             continue;
         }
-        bool regular = true;
-#ifndef MANGOSBOT_ZERO
-        regular = bot->GetMap()->IsRegularDifficulty();
-#endif
-        const uint32 damage = NativeBossEscapeSpell(bot->GetMapId(), boss->GetEntry(), spell, regular);
-        if (!damage) continue;
-        const float radius = NativeEncounterSpellRadius(damage);
-        if (!std::isfinite(radius) || radius <= 0 || radius > 35) continue;
+        const float clearance = BossEscapeDistance(bot, boss, spell);
+        if (clearance <= 0) continue;
         const std::vector<encounter::Circle> threats{{
-            {boss->GetPositionX(), boss->GetPositionY(), boss->GetPositionZ()}, radius + 2}};
+            {boss->GetPositionX(), boss->GetPositionY(), boss->GetPositionZ()}, clearance}};
         plan.map = bot->GetMapId(); plan.instance = bot->GetInstanceId();
         plan.boss = boss->GetObjectGuid(); plan.spell = spell;
         unsigned checked = 0;
