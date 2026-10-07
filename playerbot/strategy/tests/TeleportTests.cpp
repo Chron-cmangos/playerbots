@@ -539,6 +539,32 @@ void TestRegistry::RegisterTeleportTests()
         "wait 5",
         "observe"
     });
+
+    RegisterTest("diag_mgroup_raid_40_stationary", {
+        gmInvisible,
+        needAlive,
+        "require bot is level=80",
+        "monitor group size > 39 => pass \"Raid fully formed (40 members)\"",
+        "monitor time > 900 => fail \"Timeout: raid formation never reached 40 (traveled <distance traveled>)\"",
+        "teleport stormwind",
+        "mgroup size=40 gear=best",
+        "observe"
+    });
+
+    RegisterTest("diag_mgroup_raid_40_host_roams", {
+        gmInvisible,
+        needAlive,
+        "require bot is level=80",
+        "monitor group size > 39 => pass \"Raid fully formed despite host roaming\"",
+        "monitor time > 900 => fail \"Timeout: raid formation never reached 40 with roaming host (traveled <distance traveled>)\"",
+        "teleport stormwind",
+        "mgroup size=40 gear=best",
+        "teleport orgrimmar",
+        "wait 120",
+        "teleport group expect=40",
+        "observe"
+    });
+
     // =========================================================================================
     // BL-25 / BL-26 / BL-28 - a bot teleporting *other* bots must not run another map's work on its
     // own thread. "teleport group" routes every member through PlayerbotAI::RunOnOwningThread, so a
