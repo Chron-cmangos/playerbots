@@ -2351,7 +2351,21 @@ bool BGTactics::wsgPaths()
             }
             else if (bot->GetPositionX() < 1070.f) //to the horde entrance
             {
-                return MoveTo(bg->GetMapId(), 1076.778076f, 1396.0f, 324.0f, false, false, true);
+                // We re-align the height to 340.836f so the bot walks natively to the ledge edge
+                return MoveTo(bg->GetMapId(), 1071.500000f, 1396.000000f, 340.836000f);
+            }
+            else if (bot->GetPositionX() < 1085.f) // Bypass standard pathfinding and execute a forced leap/slide
+            {
+                // Instantiates MotionMaster to drop the bot down to the battlefield floor (Z = 318f)
+                MotionMaster& mm = *bot->GetMotionMaster();
+                mm.MovePoint(
+                    bg->GetMapId(),
+                    Position(1088.000000f, 1396.000000f, 318.000000f, 0.0f),
+                    FORCED_MOVEMENT_RUN,
+                    0.0f,
+                    false);
+
+                return true;
             }
             else if (bot->GetPositionX() < 1125.f) //to the horde entrance
             {
